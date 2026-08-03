@@ -1,0 +1,54 @@
+{"path": "sample.csv", "type": "email", "value": "jane.doe@example.com", "block": 1, "start": 10, "end": 30, "confidence": "high", "severity": "low", "fingerprint": "50257c00cec4e160"}
+{"path": "sample.csv", "type": "phone", "value": "+1-555-0142", "block": 1, "start": 32, "end": 43, "confidence": "high", "severity": "low", "fingerprint": "f341fc8b2db91096"}
+{"path": "sample.csv", "type": "credit_card", "value": "4111111111111111", "block": 1, "start": 45, "end": 61, "confidence": "high", "severity": "high", "fingerprint": "f09dff1a8a945983"}
+{"path": "sample.csv", "type": "email", "value": "john.roe@example.com", "block": 2, "start": 10, "end": 30, "confidence": "high", "severity": "low", "fingerprint": "8946f6d0c02ae40b"}
+{"path": "sample.csv", "type": "phone", "value": "+1-555-0199", "block": 2, "start": 32, "end": 43, "confidence": "high", "severity": "low", "fingerprint": "2db456b96217d197"}
+{"path": "sample.csv", "type": "credit_card", "value": "5555555555554444", "block": 2, "start": 45, "end": 61, "confidence": "high", "severity": "high", "fingerprint": "b4bc5d087711291c"}
+{"path": "sample.docx", "type": "email", "value": "jane.doe@example.com", "block": 1, "start": 8, "end": 28, "confidence": "high", "severity": "low", "fingerprint": "291b1ed338e53f12"}
+{"path": "sample.docx", "type": "phone", "value": "+1-555-0142", "block": 1, "start": 37, "end": 48, "confidence": "high", "severity": "low", "fingerprint": "72234884ae169a04"}
+{"path": "sample.docx", "type": "api_key", "value": "AKIAIOSFODNN7EXAMPLE", "block": 2, "start": 16, "end": 36, "confidence": "high", "severity": "critical", "fingerprint": "2d8535c878c1370e"}
+{"path": "sample.docx", "type": "person_name", "value": "Mr. John Smith", "block": 3, "start": 8, "end": 22, "confidence": "low", "severity": "low", "fingerprint": "39da407cc3e476db"}
+{"path": "sample.docx", "type": "email", "value": "jane.doe@example.com", "block": 5, "start": 10, "end": 30, "confidence": "high", "severity": "low", "fingerprint": "291b1ed338e53f12"}
+{"path": "sample.docx", "type": "credit_card", "value": "4111111111111111", "block": 5, "start": 32, "end": 48, "confidence": "high", "severity": "high", "fingerprint": "a76ed7878f2b815d"}
+{"path": "sample.docx", "type": "email", "value": "john.roe@example.com", "block": 6, "start": 10, "end": 30, "confidence": "high", "severity": "low", "fingerprint": "53b63713295b4dcf"}
+{"path": "sample.docx", "type": "credit_card", "value": "5555555555554444", "block": 6, "start": 32, "end": 48, "confidence": "high", "severity": "high", "fingerprint": "ef1314520f6d1e04"}
+{"path": "sample.docx", "type": "email", "value": "header.owner@example.com", "block": 7, "start": 38, "end": 62, "confidence": "high", "severity": "low", "fingerprint": "1aede65121c6792a"}
+{"path": "sample.docx", "type": "phone", "value": "+1-555-0177", "block": 8, "start": 22, "end": 33, "confidence": "high", "severity": "low", "fingerprint": "dee7c3178e32e62a"}
+{"path": "sample.docx", "type": "api_key", "value": "ghp_0123456789abcdefghijklmnopqrstuvwxyz", "block": 9, "start": 28, "end": 68, "confidence": "high", "severity": "critical", "fingerprint": "52a36b9d715b0af2"}
+{"path": "sample.eml", "type": "email", "value": "jane.doe@example.com", "block": 0, "start": 16, "end": 36, "confidence": "high", "severity": "low", "fingerprint": "2792b157443abe55"}
+{"path": "sample.eml", "type": "email", "value": "john.roe@example.com", "block": 1, "start": 14, "end": 34, "confidence": "high", "severity": "low", "fingerprint": "073ee661c62b50af"}
+{"path": "sample.eml", "type": "email", "value": "support@example.com", "block": 2, "start": 4, "end": 23, "confidence": "high", "severity": "low", "fingerprint": "539d04ddd175c1f4"}
+{"path": "sample.eml", "type": "credit_card", "value": "4111111111111111", "block": 6, "start": 14, "end": 30, "confidence": "high", "severity": "high", "fingerprint": "6b2042db7cc123b0"}
+{"path": "sample.eml", "type": "ipv4", "value": "192.0.2.10", "block": 6, "start": 59, "end": 69, "confidence": "medium", "severity": "low", "fingerprint": "941fef71f9b8901d"}
+{"path": "sample.eml", "type": "person_name", "value": "Ms. Jane Doe", "block": 7, "start": 9, "end": 21, "confidence": "low", "severity": "low", "fingerprint": "d8e396b80811f84b"}
+{"path": "sample.html", "type": "person_name", "value": "Mr. John Smith", "block": 2, "start": 7, "end": 21, "confidence": "low", "severity": "low", "fingerprint": "98d25fc6c86ec854"}
+{"path": "sample.html", "type": "email", "value": "jane.doe@example.com", "block": 3, "start": 7, "end": 27, "confidence": "high", "severity": "low", "fingerprint": "ba88a1f255b2c82d"}
+{"path": "sample.html", "type": "email", "value": "jane.doe@example.com", "block": 3, "start": 28, "end": 48, "confidence": "high", "severity": "low", "fingerprint": "ba88a1f255b2c82d"}
+{"path": "sample.html", "type": "email", "value": "hidden.support@example.com", "block": 4, "start": 9, "end": 35, "confidence": "high", "severity": "low", "fingerprint": "1bb2b0f0706863c9"}
+{"path": "sample.html", "type": "phone", "value": "+1-555-0142", "block": 5, "start": 7, "end": 18, "confidence": "high", "severity": "low", "fingerprint": "ff6fd53aee086b87"}
+{"path": "sample.html", "type": "api_key", "value": "ghp_0123456789abcdefghijklmnopqrstuvwxyz", "block": 6, "start": 7, "end": 47, "confidence": "high", "severity": "critical", "fingerprint": "d8e11e26b8fa070b"}
+{"path": "sample.html", "type": "ipv4", "value": "192.0.2.10", "block": 7, "start": 7, "end": 17, "confidence": "medium", "severity": "low", "fingerprint": "099abf340efcc75f"}
+{"path": "sample.html", "type": "ipv4", "value": "198.51.100.7", "block": 7, "start": 32, "end": 44, "confidence": "medium", "severity": "low", "fingerprint": "e688229773a98bdd"}
+{"path": "sample.json", "type": "email", "value": "jane.doe@example.com", "block": 1, "start": 7, "end": 27, "confidence": "high", "severity": "low", "fingerprint": "0ee0759139324b84"}
+{"path": "sample.json", "type": "api_key", "value": "AKIAIOSFODNN7EXAMPLE", "block": 2, "start": 19, "end": 39, "confidence": "high", "severity": "critical", "fingerprint": "98da66984925f3df"}
+{"path": "sample.json", "type": "ipv4", "value": "192.0.2.10", "block": 3, "start": 10, "end": 20, "confidence": "medium", "severity": "low", "fingerprint": "5ee1cd2970a5c5cf"}
+{"path": "sample.json", "type": "ipv4", "value": "198.51.100.7", "block": 4, "start": 10, "end": 22, "confidence": "medium", "severity": "low", "fingerprint": "64a57a05feefe983"}
+{"path": "sample.json", "type": "api_key", "value": "ghp_0123456789abcdefghijklmnopqrstuvwxyz", "block": 5, "start": 14, "end": 54, "confidence": "high", "severity": "critical", "fingerprint": "b5a1a44e3e1e81cb"}
+{"path": "sample.md", "type": "person_name", "value": "Ms. Jane Doe", "block": 1, "start": 19, "end": 31, "confidence": "low", "severity": "low", "fingerprint": "fa1ac054fa932ad8"}
+{"path": "sample.md", "type": "email", "value": "jane.doe@example.com", "block": 1, "start": 35, "end": 55, "confidence": "high", "severity": "low", "fingerprint": "da304f0c225e3d46"}
+{"path": "sample.md", "type": "phone", "value": "+1-555-0142", "block": 1, "start": 59, "end": 70, "confidence": "high", "severity": "low", "fingerprint": "9fd689b0d4d70a12"}
+{"path": "sample.md", "type": "api_key", "value": "AKIAIOSFODNN7EXAMPLE", "block": 2, "start": 42, "end": 62, "confidence": "high", "severity": "critical", "fingerprint": "85d807de7c251b43"}
+{"path": "sample.md", "type": "jwt", "value": "eyJhbGciOiJub25lIn0.eyJkZW1vIjoidHJ1ZSJ9.c2lnbmF0dXJl", "block": 2, "start": 77, "end": 130, "confidence": "high", "severity": "high", "fingerprint": "e43b9510ba5b1210"}
+{"path": "sample.md", "type": "credit_card", "value": "4111111111111111", "block": 3, "start": 25, "end": 41, "confidence": "high", "severity": "high", "fingerprint": "e20692f6cc527b04"}
+{"path": "sample.md", "type": "iban", "value": "GB82WEST12345698765432", "block": 3, "start": 48, "end": 70, "confidence": "high", "severity": "medium", "fingerprint": "c21b7306ad052f78"}
+{"path": "sample.pdf", "type": "email", "value": "jane.doe@example.com", "block": 0, "start": 100, "end": 120, "confidence": "high", "severity": "low", "fingerprint": "f9849fe1a43168f7"}
+{"path": "sample.pdf", "type": "phone", "value": "+1-555-0142", "block": 1, "start": 21, "end": 32, "confidence": "high", "severity": "low", "fingerprint": "f4221a341e01253b"}
+{"path": "sample.pdf", "type": "api_key", "value": "AKIAIOSFODNN7EXAMPLE", "block": 1, "start": 50, "end": 70, "confidence": "high", "severity": "critical", "fingerprint": "33fa18a10c779951"}
+{"path": "sample.pdf", "type": "credit_card", "value": "4111111111111111", "block": 2, "start": 13, "end": 29, "confidence": "high", "severity": "high", "fingerprint": "d4ce70b38916f440"}
+{"path": "sample.pdf", "type": "person_name", "value": "Mr. John Smith", "block": 2, "start": 58, "end": 72, "confidence": "low", "severity": "low", "fingerprint": "1048b82c8ad96b9c"}
+{"path": "sample.txt", "type": "email", "value": "jane.doe@example.com", "block": 1, "start": 8, "end": 28, "confidence": "high", "severity": "low", "fingerprint": "7e8de132638f4796"}
+{"path": "sample.txt", "type": "phone", "value": "+1-555-0142", "block": 1, "start": 37, "end": 48, "confidence": "high", "severity": "low", "fingerprint": "0c128e4846b9ff30"}
+{"path": "sample.txt", "type": "credit_card", "value": "4111111111111111", "block": 2, "start": 22, "end": 38, "confidence": "high", "severity": "high", "fingerprint": "7c1f5a548c266b17"}
+{"path": "sample.txt", "type": "api_key", "value": "AKIAIOSFODNN7EXAMPLE", "block": 2, "start": 75, "end": 95, "confidence": "high", "severity": "critical", "fingerprint": "ebd9d5fd4c55076e"}
+{"path": "sample.txt", "type": "pem_key", "value": "-----BEGIN RSA PRIVATE KEY-----", "block": 3, "start": 0, "end": 31, "confidence": "high", "severity": "critical", "fingerprint": "fd283d599d3c79df"}
+{"path": "sample.txt", "type": "high_entropy", "value": "bm90IGEgcmVhbCBrZXkgLSBmaXh0dXJlIG9ubHk=", "block": 3, "start": 32, "end": 72, "confidence": "medium", "severity": "medium", "fingerprint": "941709e19e20d5c4"}

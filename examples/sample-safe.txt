@@ -1,0 +1,10 @@
+DocRedact synthetic text fixture. Everything here is fake test data.
+
+Contact [EMAIL_1] or call [PHONE_1] for support.
+
+Payment card on file: [CREDIT_CARD_1] (Visa test number).
+AWS key sample: [API_KEY_1]
+
+[PEM_KEY_1]
+[HIGH_ENTROPY_1]
+-----END RSA PRIVATE KEY-----

@@ -1,0 +1,9 @@
+{
+  "service": "docredact-fixture",
+  "owner": "jane.doe@example.com",
+  "aws": {
+    "access_key_id": "AKIAIOSFODNN7EXAMPLE"
+  },
+  "hosts": ["192.0.2.10", "198.51.100.7"],
+  "github_token": "ghp_0123456789abcdefghijklmnopqrstuvwxyz"
+}

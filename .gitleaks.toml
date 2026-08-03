@@ -1,0 +1,41 @@
+# gitleaks configuration for DocRedact.
+#
+# DocRedact is a secret/PII *detector*, so this repo intentionally contains
+# DOCUMENTED synthetic scanner-bait (fake AWS keys, fake GitHub tokens, fake
+# PEM blocks) used as test fixtures and detector test cases. Nothing
+# allowlisted below is a real credential. Every entry is scoped to a specific
+# path or a specific fake value -- no detection rule is disabled.
+
+[extend]
+# Keep the complete default gitleaks ruleset active; we only add narrow
+# allowlist entries on top of it.
+useDefault = true
+
+[allowlist]
+description = "Documented synthetic fixtures and canonical fake example secrets"
+
+paths = [
+  # Synthetic input documents (txt/md/html/pdf/csv) plus their generator
+  # script. They deliberately embed fake secrets so the extract/redact
+  # pipeline has something to find; fixtures/sample.txt even says
+  # "Everything here is fake test data" in line 1.
+  '''^fixtures/''',
+  # Unit tests embed the same fake values inline to assert detector output
+  # (tests/test_detectors.py, tests/test_extractors.py).
+  '''^tests/''',
+]
+
+regexes = [
+  # AWS documentation's own canonical example access key id (public and
+  # non-functional). Also referenced in README.md when describing fixtures.
+  '''AKIAIOSFODNN7EXAMPLE''',
+  # Sequential fake GitHub PAT used in fixtures (digits 0-9 then a-z;
+  # trivially not a real token).
+  '''ghp_0123456789abcdefghijklmnopqrstuvwxyz''',
+  # Fake GitHub PAT literally containing "NotReal", used in detector tests.
+  '''ghp_NotReal9zQ2vXm7Lp4sTk1bNw8rYc3dJh6uZ''',
+  # Fake JWT from fixtures/sample.md (alg "none", payload {"demo":"true"},
+  # signature literally the word "signature" in base64). It also appears in the
+  # committed showcase scan output examples/fixtures-scan.jsonl.
+  '''eyJhbGciOiJub25lIn0\.eyJkZW1vIjoidHJ1ZSJ9\.c2lnbmF0dXJl''',
+]

@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "docredact"
+version = "1.2.0"
+description = "Local-first document extraction and redaction CLI: PDF/DOCX/EML/JSON and seven text formats to clean JSON, with offline sensitive-data detection, sanitized shareable artifacts, and a fail-only-on-new CI gate."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Proprietary - All Rights Reserved" }
+authors = [{ name = "GreenPandaTech" }]
+keywords = ["pdf", "docx", "extraction", "redaction", "pii", "cli", "offline"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Programming Language :: Python :: 3",
+    "Topic :: Text Processing :: Filters",
+]
+dependencies = ["pypdf>=4.0"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "ruff", "mypy", "hypothesis>=6.100"]
+
+[project.scripts]
+docredact = "docredact.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM"]
+# Detector regexes, threat-model prose, and document fixtures are long readable lines;
+# line length is not hard-enforced (no auto-formatter). All other checks stay on.
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+mypy_path = "src"
+
+[[tool.mypy.overrides]]
+module = "pypdf.*"
+ignore_missing_imports = true

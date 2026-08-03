@@ -1,0 +1,10 @@
+DocRedact synthetic text fixture. Everything here is fake test data.
+
+Contact jane.doe@example.com or call +1-555-0142 for support.
+
+Payment card on file: 4111111111111111 (Visa test number).
+AWS key sample: AKIAIOSFODNN7EXAMPLE
+
+-----BEGIN RSA PRIVATE KEY-----
+bm90IGEgcmVhbCBrZXkgLSBmaXh0dXJlIG9ubHk=
+-----END RSA PRIVATE KEY-----

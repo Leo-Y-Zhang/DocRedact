@@ -1,0 +1,1498 @@
+{
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "docredact",
+          "version": "1.2.0",
+          "rules": [
+            {
+              "id": "api_key",
+              "shortDescription": {
+                "text": "api_key finding"
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "severity": "critical",
+                "reference": "CWE-798 hardcoded credentials"
+              }
+            },
+            {
+              "id": "credit_card",
+              "shortDescription": {
+                "text": "credit_card finding"
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "severity": "high",
+                "reference": "CWE-312 cleartext storage of card data (PCI)"
+              }
+            },
+            {
+              "id": "email",
+              "shortDescription": {
+                "text": "email finding"
+              },
+              "defaultConfiguration": {
+                "level": "note"
+              },
+              "properties": {
+                "severity": "low",
+                "reference": "CWE-359 privacy violation (contact PII)"
+              }
+            },
+            {
+              "id": "high_entropy",
+              "shortDescription": {
+                "text": "high_entropy finding"
+              },
+              "defaultConfiguration": {
+                "level": "warning"
+              },
+              "properties": {
+                "severity": "medium",
+                "reference": "CWE-312 cleartext storage (suspected secret)"
+              }
+            },
+            {
+              "id": "iban",
+              "shortDescription": {
+                "text": "iban finding"
+              },
+              "defaultConfiguration": {
+                "level": "warning"
+              },
+              "properties": {
+                "severity": "medium",
+                "reference": "CWE-359 privacy violation (financial identifier)"
+              }
+            },
+            {
+              "id": "ipv4",
+              "shortDescription": {
+                "text": "ipv4 finding"
+              },
+              "defaultConfiguration": {
+                "level": "note"
+              },
+              "properties": {
+                "severity": "low",
+                "reference": "CWE-200 information exposure (network layout)"
+              }
+            },
+            {
+              "id": "jwt",
+              "shortDescription": {
+                "text": "jwt finding"
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "severity": "high",
+                "reference": "CWE-522 insufficiently protected credentials"
+              }
+            },
+            {
+              "id": "pem_key",
+              "shortDescription": {
+                "text": "pem_key finding"
+              },
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "severity": "critical",
+                "reference": "CWE-798 hardcoded credentials"
+              }
+            },
+            {
+              "id": "person_name",
+              "shortDescription": {
+                "text": "person_name finding"
+              },
+              "defaultConfiguration": {
+                "level": "note"
+              },
+              "properties": {
+                "severity": "low",
+                "reference": "CWE-359 privacy violation (personal name)"
+              }
+            },
+            {
+              "id": "phone",
+              "shortDescription": {
+                "text": "phone finding"
+              },
+              "defaultConfiguration": {
+                "level": "note"
+              },
+              "properties": {
+                "severity": "low",
+                "reference": "CWE-359 privacy violation (contact PII)"
+              }
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "email",
+          "ruleIndex": 2,
+          "level": "note",
+          "message": {
+            "text": "email finding (severity low, confidence high)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "sample.csv"
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "docredactFingerprint/v1": "50257c00cec4e160"
+          },
+          "properties": {
+            "block": 1,
+            "start": 10,
+            "end": 30
+          }
+        },
+        {
+          "ruleId": "phone",
+          "ruleIndex": 9,
+          "level": "note",
+          "message": {
+            "text": "phone finding (severity low, confidence high)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "sample.csv"
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "docredactFingerprint/v1": "f341fc8b2db91096"
+          },
+          "properties": {
+            "block": 1,
+            "start": 32,
+            "end": 43
+          }
+        },
+        {
+          "ruleId": "credit_card",
+          "ruleIndex": 1,
+          "level": "error",
+          "message": {
+            "text": "credit_card finding (severity high, confidence high)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "sample.csv"
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "docredactFingerprint/v1": "f09dff1a8a945983"
+          },
+          "properties": {
+            "block": 1,
+            "start": 45,
+            "end": 61
+          }
+        },
+        {
+          "ruleId": "email",
+          "ruleIndex": 2,
+          "level": "note",
+          "message": {
+            "text": "email finding (severity low, confidence high)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "sample.csv"
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "docredactFingerprint/v1": "8946f6d0c02ae40b"
+          },
+          "properties": {
+            "block": 2,
+            "start": 10,
+            "end": 30
+          }
+        },
+        {
+          "ruleId": "phone",
+          "ruleIndex": 9,
+          "level": "note",
+          "message": {
+            "text": "phone finding (severity low, confidence high)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "sample.csv"
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "docredactFingerprint/v1": "2db456b96217d197"
+          },
+          "properties": {
+            "block": 2,
+            "start": 32,
+            "end": 43
+          }
+        },
+        {
+          "ruleId": "credit_card",
+          "ruleIndex": 1,
+          "level": "error",
+          "message": {
+            "text": "credit_card finding (severity high, confidence high)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "sample.csv"
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "docredactFingerprint/v1": "b4bc5d087711291c"
+          },
+          "properties": {
+            "block": 2,
+            "start": 45,
+            "end": 61
+          }
+        },
+        {
+          "ruleId": "email",
+          "ruleIndex": 2,
+          "level": "note",
+          "message": {
+            "text": "email finding (severity low, confidence high)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "sample.docx"
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "docredactFingerprint/v1": "291b1ed338e53f12"
+          },
+          "properties": {
+            "block": 1,
+            "start": 8,
+            "end": 28
+          }
+        },
+        {
+          "ruleId": "phone",
+          "ruleIndex": 9,
+          "level": "note",
+          "message": {
+            "text": "phone finding (severity low, confidence high)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "sample.docx"
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "docredactFingerprint/v1": "72234884ae169a04"
+          },
+          "properties": {
+            "block": 1,
+            "start": 37,
+            "end": 48
+          }
+        },
+        {
+          "ruleId": "api_key",
+          "ruleIndex": 0,
+          "level": "error",
+          "message": {
+            "text": "api_key finding (severity critical, confidence high)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "sample.docx"
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "docredactFingerprint/v1": "2d8535c878c1370e"
+          },
+          "properties": {
+            "block": 2,
+            "start": 16,
+            "end": 36
+          }
+        },
+        {
+          "ruleId": "person_name",
+          "ruleIndex": 8,
+          "level": "note",
+          "message": {
+            "text": "person_name finding (severity low, confidence low)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "sample.docx"
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "docredactFingerprint/v1": "39da407cc3e476db"
+          },
+          "properties": {
+            "block": 3,
+            "start": 8,
+            "end": 22
+          }
+        },
+        {
+          "ruleId": "email",
+          "ruleIndex": 2,
+          "level": "note",
+          "message": {
+            "text": "email finding (severity low, confidence high)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "sample.docx"
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "docredactFingerprint/v1": "291b1ed338e53f12"
+          },
+          "properties": {
+            "block": 5,
+            "start": 10,
+            "end": 30
+          }
+        },
+        {
+          "ruleId": "credit_card",
+          "ruleIndex": 1,
+          "level": "error",
+          "message": {
+            "text": "credit_card finding (severity high, confidence high)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "sample.docx"
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "docredactFingerprint/v1": "a76ed7878f2b815d"
+          },
+          "properties": {
+            "block": 5,
+            "start": 32,
+            "end": 48
+          }
+        },
+        {
+          "ruleId": "email",
+          "ruleIndex": 2,
+          "level": "note",
+          "message": {
+            "text": "email finding (severity low, confidence high)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "sample.docx"
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "docredactFingerprint/v1": "53b63713295b4dcf"
+          },
+          "properties": {
+            "block": 6,
+            "start": 10,
+            "end": 30
+          }
+        },
+        {
+          "ruleId": "credit_card",
+          "ruleIndex": 1,
+          "level": "error",
+          "message": {
+            "text": "credit_card finding (severity high, confidence high)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "sample.docx"
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "docredactFingerprint/v1": "ef1314520f6d1e04"
+          },
+          "properties": {
+            "block": 6,
+            "start": 32,
+            "end": 48
+          }
+        },
+        {
+          "ruleId": "email",
+          "ruleIndex": 2,
+          "level": "note",
+          "message": {
+            "text": "email finding (severity low, confidence high)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "sample.docx"
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "docredactFingerprint/v1": "1aede65121c6792a"
+          },
+          "properties": {
+            "block": 7,
+            "start": 38,
+            "end": 62
+          }
+        },
+        {
+          "ruleId": "phone",
+          "ruleIndex": 9,
+          "level": "note",
+          "message": {
+            "text": "phone finding (severity low, confidence high)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "sample.docx"
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "docredactFingerprint/v1": "dee7c3178e32e62a"
+          },
+          "properties": {
+            "block": 8,
+            "start": 22,
+            "end": 33
+          }
+        },
+        {
+          "ruleId": "api_key",
+          "ruleIndex": 0,
+          "level": "error",
+          "message": {
+            "text": "api_key finding (severity critical, confidence high)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "sample.docx"
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "docredactFingerprint/v1": "52a36b9d715b0af2"
+          },
+          "properties": {
+            "block": 9,
+            "start": 28,
+            "end": 68
+          }
+        },
+        {
+          "ruleId": "email",
+          "ruleIndex": 2,
+          "level": "note",
+          "message": {
+            "text": "email finding (severity low, confidence high)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "sample.eml"
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "docredactFingerprint/v1": "2792b157443abe55"
+          },
+          "properties": {
+            "block": 0,
+            "start": 16,
+            "end": 36
+          }
+        },
+        {
+          "ruleId": "email",
+          "ruleIndex": 2,
+          "level": "note",
+          "message": {
+            "text": "email finding (severity low, confidence high)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "sample.eml"
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "docredactFingerprint/v1": "073ee661c62b50af"
+          },
+          "properties": {
+            "block": 1,
+            "start": 14,
+            "end": 34
+          }
+        },
+        {
+          "ruleId": "email",
+          "ruleIndex": 2,
+          "level": "note",
+          "message": {
+            "text": "email finding (severity low, confidence high)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "sample.eml"
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "docredactFingerprint/v1": "539d04ddd175c1f4"
+          },
+          "properties": {
+            "block": 2,
+            "start": 4,
+            "end": 23
+          }
+        },
+        {
+          "ruleId": "credit_card",
+          "ruleIndex": 1,
+          "level": "error",
+          "message": {
+            "text": "credit_card finding (severity high, confidence high)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "sample.eml"
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "docredactFingerprint/v1": "6b2042db7cc123b0"
+          },
+          "properties": {
+            "block": 6,
+            "start": 14,
+            "end": 30
+          }
+        },
+        {
+          "ruleId": "ipv4",
+          "ruleIndex": 5,
+          "level": "note",
+          "message": {
+            "text": "ipv4 finding (severity low, confidence medium)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "sample.eml"
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "docredactFingerprint/v1": "941fef71f9b8901d"
+          },
+          "properties": {
+            "block": 6,
+            "start": 59,
+            "end": 69
+          }
+        },
+        {
+          "ruleId": "person_name",
+          "ruleIndex": 8,
+          "level": "note",
+          "message": {
+            "text": "person_name finding (severity low, confidence low)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "sample.eml"
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "docredactFingerprint/v1": "d8e396b80811f84b"
+          },
+          "properties": {
+            "block": 7,
+            "start": 9,
+            "end": 21
+          }
+        },
+        {
+          "ruleId": "person_name",
+          "ruleIndex": 8,
+          "level": "note",
+          "message": {
+            "text": "person_name finding (severity low, confidence low)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "sample.html"
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "docredactFingerprint/v1": "98d25fc6c86ec854"
+          },
+          "properties": {
+            "block": 2,
+            "start": 7,
+            "end": 21
+          }
+        },
+        {
+          "ruleId": "email",
+          "ruleIndex": 2,
+          "level": "note",
+          "message": {
+            "text": "email finding (severity low, confidence high)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "sample.html"
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "docredactFingerprint/v1": "ba88a1f255b2c82d"
+          },
+          "properties": {
+            "block": 3,
+            "start": 7,
+            "end": 27
+          }
+        },
+        {
+          "ruleId": "email",
+          "ruleIndex": 2,
+          "level": "note",
+          "message": {
+            "text": "email finding (severity low, confidence high)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "sample.html"
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "docredactFingerprint/v1": "ba88a1f255b2c82d"
+          },
+          "properties": {
+            "block": 3,
+            "start": 28,
+            "end": 48
+          }
+        },
+        {
+          "ruleId": "email",
+          "ruleIndex": 2,
+          "level": "note",
+          "message": {
+            "text": "email finding (severity low, confidence high)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "sample.html"
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "docredactFingerprint/v1": "1bb2b0f0706863c9"
+          },
+          "properties": {
+            "block": 4,
+            "start": 9,
+            "end": 35
+          }
+        },
+        {
+          "ruleId": "phone",
+          "ruleIndex": 9,
+          "level": "note",
+          "message": {
+            "text": "phone finding (severity low, confidence high)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "sample.html"
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "docredactFingerprint/v1": "ff6fd53aee086b87"
+          },
+          "properties": {
+            "block": 5,
+            "start": 7,
+            "end": 18
+          }
+        },
+        {
+          "ruleId": "api_key",
+          "ruleIndex": 0,
+          "level": "error",
+          "message": {
+            "text": "api_key finding (severity critical, confidence high)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "sample.html"
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "docredactFingerprint/v1": "d8e11e26b8fa070b"
+          },
+          "properties": {
+            "block": 6,
+            "start": 7,
+            "end": 47
+          }
+        },
+        {
+          "ruleId": "ipv4",
+          "ruleIndex": 5,
+          "level": "note",
+          "message": {
+            "text": "ipv4 finding (severity low, confidence medium)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "sample.html"
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "docredactFingerprint/v1": "099abf340efcc75f"
+          },
+          "properties": {
+            "block": 7,
+            "start": 7,
+            "end": 17
+          }
+        },
+        {
+          "ruleId": "ipv4",
+          "ruleIndex": 5,
+          "level": "note",
+          "message": {
+            "text": "ipv4 finding (severity low, confidence medium)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "sample.html"
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "docredactFingerprint/v1": "e688229773a98bdd"
+          },
+          "properties": {
+            "block": 7,
+            "start": 32,
+            "end": 44
+          }
+        },
+        {
+          "ruleId": "email",
+          "ruleIndex": 2,
+          "level": "note",
+          "message": {
+            "text": "email finding (severity low, confidence high)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "sample.json"
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "docredactFingerprint/v1": "0ee0759139324b84"
+          },
+          "properties": {
+            "block": 1,
+            "start": 7,
+            "end": 27
+          }
+        },
+        {
+          "ruleId": "api_key",
+          "ruleIndex": 0,
+          "level": "error",
+          "message": {
+            "text": "api_key finding (severity critical, confidence high)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "sample.json"
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "docredactFingerprint/v1": "98da66984925f3df"
+          },
+          "properties": {
+            "block": 2,
+            "start": 19,
+            "end": 39
+          }
+        },
+        {
+          "ruleId": "ipv4",
+          "ruleIndex": 5,
+          "level": "note",
+          "message": {
+            "text": "ipv4 finding (severity low, confidence medium)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "sample.json"
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "docredactFingerprint/v1": "5ee1cd2970a5c5cf"
+          },
+          "properties": {
+            "block": 3,
+            "start": 10,
+            "end": 20
+          }
+        },
+        {
+          "ruleId": "ipv4",
+          "ruleIndex": 5,
+          "level": "note",
+          "message": {
+            "text": "ipv4 finding (severity low, confidence medium)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "sample.json"
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "docredactFingerprint/v1": "64a57a05feefe983"
+          },
+          "properties": {
+            "block": 4,
+            "start": 10,
+            "end": 22
+          }
+        },
+        {
+          "ruleId": "api_key",
+          "ruleIndex": 0,
+          "level": "error",
+          "message": {
+            "text": "api_key finding (severity critical, confidence high)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "sample.json"
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "docredactFingerprint/v1": "b5a1a44e3e1e81cb"
+          },
+          "properties": {
+            "block": 5,
+            "start": 14,
+            "end": 54
+          }
+        },
+        {
+          "ruleId": "person_name",
+          "ruleIndex": 8,
+          "level": "note",
+          "message": {
+            "text": "person_name finding (severity low, confidence low)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "sample.md"
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "docredactFingerprint/v1": "fa1ac054fa932ad8"
+          },
+          "properties": {
+            "block": 1,
+            "start": 19,
+            "end": 31
+          }
+        },
+        {
+          "ruleId": "email",
+          "ruleIndex": 2,
+          "level": "note",
+          "message": {
+            "text": "email finding (severity low, confidence high)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "sample.md"
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "docredactFingerprint/v1": "da304f0c225e3d46"
+          },
+          "properties": {
+            "block": 1,
+            "start": 35,
+            "end": 55
+          }
+        },
+        {
+          "ruleId": "phone",
+          "ruleIndex": 9,
+          "level": "note",
+          "message": {
+            "text": "phone finding (severity low, confidence high)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "sample.md"
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "docredactFingerprint/v1": "9fd689b0d4d70a12"
+          },
+          "properties": {
+            "block": 1,
+            "start": 59,
+            "end": 70
+          }
+        },
+        {
+          "ruleId": "api_key",
+          "ruleIndex": 0,
+          "level": "error",
+          "message": {
+            "text": "api_key finding (severity critical, confidence high)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "sample.md"
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "docredactFingerprint/v1": "85d807de7c251b43"
+          },
+          "properties": {
+            "block": 2,
+            "start": 42,
+            "end": 62
+          }
+        },
+        {
+          "ruleId": "jwt",
+          "ruleIndex": 6,
+          "level": "error",
+          "message": {
+            "text": "jwt finding (severity high, confidence high)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "sample.md"
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "docredactFingerprint/v1": "e43b9510ba5b1210"
+          },
+          "properties": {
+            "block": 2,
+            "start": 77,
+            "end": 130
+          }
+        },
+        {
+          "ruleId": "credit_card",
+          "ruleIndex": 1,
+          "level": "error",
+          "message": {
+            "text": "credit_card finding (severity high, confidence high)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "sample.md"
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "docredactFingerprint/v1": "e20692f6cc527b04"
+          },
+          "properties": {
+            "block": 3,
+            "start": 25,
+            "end": 41
+          }
+        },
+        {
+          "ruleId": "iban",
+          "ruleIndex": 4,
+          "level": "warning",
+          "message": {
+            "text": "iban finding (severity medium, confidence high)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "sample.md"
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "docredactFingerprint/v1": "c21b7306ad052f78"
+          },
+          "properties": {
+            "block": 3,
+            "start": 48,
+            "end": 70
+          }
+        },
+        {
+          "ruleId": "email",
+          "ruleIndex": 2,
+          "level": "note",
+          "message": {
+            "text": "email finding (severity low, confidence high)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "sample.pdf"
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "docredactFingerprint/v1": "f9849fe1a43168f7"
+          },
+          "properties": {
+            "block": 0,
+            "start": 100,
+            "end": 120
+          }
+        },
+        {
+          "ruleId": "phone",
+          "ruleIndex": 9,
+          "level": "note",
+          "message": {
+            "text": "phone finding (severity low, confidence high)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "sample.pdf"
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "docredactFingerprint/v1": "f4221a341e01253b"
+          },
+          "properties": {
+            "block": 1,
+            "start": 21,
+            "end": 32
+          }
+        },
+        {
+          "ruleId": "api_key",
+          "ruleIndex": 0,
+          "level": "error",
+          "message": {
+            "text": "api_key finding (severity critical, confidence high)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "sample.pdf"
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "docredactFingerprint/v1": "33fa18a10c779951"
+          },
+          "properties": {
+            "block": 1,
+            "start": 50,
+            "end": 70
+          }
+        },
+        {
+          "ruleId": "credit_card",
+          "ruleIndex": 1,
+          "level": "error",
+          "message": {
+            "text": "credit_card finding (severity high, confidence high)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "sample.pdf"
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "docredactFingerprint/v1": "d4ce70b38916f440"
+          },
+          "properties": {
+            "block": 2,
+            "start": 13,
+            "end": 29
+          }
+        },
+        {
+          "ruleId": "person_name",
+          "ruleIndex": 8,
+          "level": "note",
+          "message": {
+            "text": "person_name finding (severity low, confidence low)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "sample.pdf"
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "docredactFingerprint/v1": "1048b82c8ad96b9c"
+          },
+          "properties": {
+            "block": 2,
+            "start": 58,
+            "end": 72
+          }
+        },
+        {
+          "ruleId": "email",
+          "ruleIndex": 2,
+          "level": "note",
+          "message": {
+            "text": "email finding (severity low, confidence high)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "sample.txt"
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "docredactFingerprint/v1": "7e8de132638f4796"
+          },
+          "properties": {
+            "block": 1,
+            "start": 8,
+            "end": 28
+          }
+        },
+        {
+          "ruleId": "phone",
+          "ruleIndex": 9,
+          "level": "note",
+          "message": {
+            "text": "phone finding (severity low, confidence high)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "sample.txt"
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "docredactFingerprint/v1": "0c128e4846b9ff30"
+          },
+          "properties": {
+            "block": 1,
+            "start": 37,
+            "end": 48
+          }
+        },
+        {
+          "ruleId": "credit_card",
+          "ruleIndex": 1,
+          "level": "error",
+          "message": {
+            "text": "credit_card finding (severity high, confidence high)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "sample.txt"
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "docredactFingerprint/v1": "7c1f5a548c266b17"
+          },
+          "properties": {
+            "block": 2,
+            "start": 22,
+            "end": 38
+          }
+        },
+        {
+          "ruleId": "api_key",
+          "ruleIndex": 0,
+          "level": "error",
+          "message": {
+            "text": "api_key finding (severity critical, confidence high)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "sample.txt"
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "docredactFingerprint/v1": "ebd9d5fd4c55076e"
+          },
+          "properties": {
+            "block": 2,
+            "start": 75,
+            "end": 95
+          }
+        },
+        {
+          "ruleId": "pem_key",
+          "ruleIndex": 7,
+          "level": "error",
+          "message": {
+            "text": "pem_key finding (severity critical, confidence high)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "sample.txt"
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "docredactFingerprint/v1": "fd283d599d3c79df"
+          },
+          "properties": {
+            "block": 3,
+            "start": 0,
+            "end": 31
+          }
+        },
+        {
+          "ruleId": "high_entropy",
+          "ruleIndex": 3,
+          "level": "warning",
+          "message": {
+            "text": "high_entropy finding (severity medium, confidence medium)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "sample.txt"
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "docredactFingerprint/v1": "941709e19e20d5c4"
+          },
+          "properties": {
+            "block": 3,
+            "start": 32,
+            "end": 72
+          }
+        }
+      ]
+    }
+  ]
+}

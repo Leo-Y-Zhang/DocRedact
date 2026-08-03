@@ -1,0 +1,16 @@
+From: Jane Doe <jane.doe@example.com>
+To: John Roe <john.roe@example.com>
+Cc: support@example.com
+Subject: Synthetic fixture email (fake data only)
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+
+Hi John,
+
+This is a DocRedact test fixture; every value is fake.
+
+Card on file: 4111111111111111 (Visa test number).
+Server: 192.0.2.10
+
+Regards,
+Ms. Jane Doe
