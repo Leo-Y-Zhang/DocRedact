@@ -9,7 +9,7 @@ description = "Local-first document extraction and redaction CLI: PDF/DOCX/EML/J
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "Proprietary - All Rights Reserved" }
-authors = [{ name = "GreenPandaTech" }]
+authors = [{ name = "Leo-Y-Zhang" }]
 keywords = ["pdf", "docx", "extraction", "redaction", "pii", "cli", "offline"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",

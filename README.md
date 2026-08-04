@@ -1,6 +1,6 @@
 # DocRedact - local-first document extraction and redaction CLI
 
-[![CI](https://github.com/GreenPandaTech/DocRedact/actions/workflows/ci.yml/badge.svg)](https://github.com/GreenPandaTech/DocRedact/actions/workflows/ci.yml)
+[![CI](https://github.com/Leo-Y-Zhang/DocRedact/actions/workflows/ci.yml/badge.svg)](https://github.com/Leo-Y-Zhang/DocRedact/actions/workflows/ci.yml)
 
 DocRedact pulls text and structure out of local documents into clean JSON,
 detects sensitive-looking data with validator-driven confidence, and produces
