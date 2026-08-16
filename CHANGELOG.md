@@ -29,6 +29,21 @@ and never contained the tool name, so an existing baseline keeps suppressing
 exactly the findings it recorded. A CI job that keys off the old SARIF
 `partialFingerprints` name will see every result as new once.
 
+### Fixed - UTF-16 documents scanned as zero findings
+
+Text formats decoded their bytes as UTF-8 unconditionally, with
+`errors="replace"`. That never fails loudly: UTF-16, which Windows tooling
+(Notepad, PowerShell redirection, Excel's "Unicode Text" export) writes with a
+BOM as a matter of course, comes back with every ASCII character interleaved
+with U+0000, so no detector can match it. A `.txt` holding
+`AKIAIOSFODNN7EXAMPLE` in UTF-16 reported zero findings, zero warnings, and
+exit 0 under `--redact strict` - the identical UTF-8 file exits 3.
+
+A byte-order mark now selects the encoding (UTF-8/16/32), and a strict decode
+is attempted before the lossy one so that undecodable bytes produce a visible
+`input is not valid utf-8` warning instead of nothing. PDF, DOCX, and EML are
+unaffected: they never went through this path.
+
 Entries below this line describe releases made under the old name and are
 left as they were written.
 

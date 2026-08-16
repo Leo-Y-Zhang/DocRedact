@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import codecs
 import csv
 import email
 import email.policy
@@ -96,6 +97,42 @@ def detect_format(path: Path) -> str:
     return fmt
 
 
+# A byte-order mark states the encoding unambiguously, and Windows tooling
+# (Notepad, PowerShell redirection, Excel's "Unicode Text" export) writes UTF-16
+# with one routinely. Decoding those bytes as UTF-8 does not fail loudly: every
+# ASCII character comes back interleaved with U+0000, so no detector can match
+# and the document scans as zero findings with zero warnings -- a --redact strict
+# gate exiting 0 on a file holding a plaintext AWS key. The UTF-32 marks must be
+# tested before the UTF-16 ones: BOM_UTF32_LE starts with BOM_UTF16_LE.
+_BOM_ENCODINGS = (
+    (codecs.BOM_UTF32_LE, "utf-32"),
+    (codecs.BOM_UTF32_BE, "utf-32"),
+    (codecs.BOM_UTF16_LE, "utf-16"),
+    (codecs.BOM_UTF16_BE, "utf-16"),
+    (codecs.BOM_UTF8, "utf-8-sig"),
+)
+
+
+def _decode_text(data: bytes) -> tuple[str, list[str]]:
+    """Decode input bytes to text, honouring a BOM and warning on undecodable bytes.
+
+    Falls back to UTF-8 when there is no BOM. A strict decode is attempted first
+    so that lossy replacement is never silent: bytes this tool could not read are
+    bytes it could not scan, and a report that omits that is a clean bill of
+    health it did not earn.
+    """
+    encoding = next(
+        (enc for bom, enc in _BOM_ENCODINGS if data.startswith(bom)), "utf-8"
+    )
+    try:
+        return data.decode(encoding), []
+    except UnicodeDecodeError:
+        return data.decode(encoding, errors="replace"), [
+            f"input is not valid {encoding}: undecodable bytes were replaced, "
+            "so some text may not have been scanned"
+        ]
+
+
 def extract_blocks(data: bytes, fmt: str) -> tuple[list[Block], list[str]]:
     """Extract ordered text blocks plus warnings from raw file bytes."""
     if fmt == "pdf":
@@ -104,9 +141,10 @@ def extract_blocks(data: bytes, fmt: str) -> tuple[list[Block], list[str]]:
         return _extract_docx(data)
     if fmt == "eml":
         return _extract_eml(data)
-    text = data.decode("utf-8", errors="replace")
+    text, warnings = _decode_text(data)
     blocks = _TEXT_EXTRACTORS[fmt](text)
-    warnings = [] if blocks else ["no text blocks extracted"]
+    if not blocks:
+        warnings.append("no text blocks extracted")
     return blocks, warnings
 
 

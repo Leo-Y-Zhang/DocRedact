@@ -105,7 +105,7 @@ python -m venv .venv
 # .venv/bin/python -m pip install -e ".[dev]"           # POSIX
 ```
 
-Run the tests: `.venv/Scripts/pytest -q` (334 tests).
+Run the tests: `.venv/Scripts/pytest -q` (336 tests).
 
 ## Quickstart
 
@@ -340,7 +340,7 @@ src/docredact/
   sarif.py        value-free SARIF 2.1.0 emitter for scan --format sarif
 fixtures/         8 synthetic sample documents + their deterministic generator
 examples/         committed showcase report, sanitized artifact + tree-scan jsonl/sarif (drift-tested)
-tests/            334 pytest tests (unit + subprocess end-to-end + property-based + stress)
+tests/            336 pytest tests (unit + subprocess end-to-end + property-based + stress)
 ```
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the pipeline and the
@@ -445,6 +445,11 @@ not a guarantee (see Limitations).
 - OCR is out of scope: image-only PDF pages produce an explicit warning.
 - Encrypted or malformed PDFs fail with exit code 1 rather than partial
   extraction.
+- Text formats are decoded as UTF-8 unless a byte-order mark says otherwise
+  (UTF-8/16/32 BOMs are honoured). A file in a legacy code page with no BOM
+  still decodes lossily - it is scanned best-effort and the report carries an
+  explicit `input is not valid utf-8` warning, so "0 findings" is never
+  silently a decoding failure.
 
 ## Roadmap
 

@@ -373,6 +373,37 @@ def test_build_document_empty_file_warns(tmp_path: Path) -> None:
     assert "no text blocks extracted" in doc["warnings"]
 
 
+def test_utf16_input_is_decoded_by_its_bom(tmp_path: Path) -> None:
+    # Windows tooling (Notepad, PowerShell redirection, Excel's "Unicode Text"
+    # export) writes UTF-16 with a BOM routinely. Decoding those bytes as UTF-8
+    # does not fail loudly: every ASCII character comes back interleaved with
+    # U+0000, so no detector can match and the document scans as ZERO findings
+    # with ZERO warnings - a strict gate passes a file holding a plaintext AWS
+    # key. A BOM states the encoding unambiguously, so honour it.
+    path = tmp_path / "u16.txt"
+    path.write_bytes(
+        "contact jane.doe@example.com key AKIAIOSFODNN7EXAMPLE\n".encode("utf-16")
+    )
+    doc = build_document(path)
+    blocks = doc["blocks"]
+    assert isinstance(blocks, list)
+    assert "\x00" not in blocks[0]["text"]
+    entities = doc["entities"]
+    assert isinstance(entities, list)
+    assert {e["type"] for e in entities} >= {"email", "api_key"}
+
+
+def test_undecodable_bytes_warn_instead_of_scanning_clean(tmp_path: Path) -> None:
+    # Anything that is not valid UTF-8 and carries no BOM is still scanned on a
+    # best-effort basis, but the report must SAY the input could not be decoded
+    # cleanly. Without that, "0 findings" is indistinguishable from "0 findings
+    # in the text I could actually read".
+    data = b"mail jane\xff\xfe.doe@example.com\n"
+    blocks, warnings = extract_blocks(data, "txt")
+    assert blocks
+    assert any("not valid" in w for w in warnings)
+
+
 def test_pdf_aggregate_output_cap_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     # DoS regression: pypdf caps decompression PER STREAM only, so a small
     # multi-page PDF that re-emits shared content can amplify to 100 M chars

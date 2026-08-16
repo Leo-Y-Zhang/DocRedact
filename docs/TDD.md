@@ -201,7 +201,7 @@ way, because the fingerprint never contained the tool name.
 
 ## The tests that would fail
 
-334 of them. Grouped by what they would catch:
+336 of them. Grouped by what they would catch:
 
 - **Positive** - `test_detectors.py` asserts every detector's true positives;
   `test_extractors.py` asserts each of the 11 formats produces the expected
