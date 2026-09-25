@@ -71,7 +71,7 @@ part of the compatibility promise.
 | `source` | str | Basename only, never a path - no directory layout or username can leak into a report. |
 | `sha256`, `size_bytes` | str, int | Of the raw input bytes. |
 | `format` | str | One of 11 names from `extractors.FORMATS`. |
-| `blocks` | list | `{index, kind, text}`. Kinds: `page`, `section`, `paragraph`, `element`, `row`, `field`, `header`, `footer`, `footnote`, `endnote`. |
+| `blocks` | list | `{index, kind, text}`. Kinds: `page`, `annotation`, `section`, `paragraph`, `element`, `row`, `field`, `header`, `footer`, `footnote`, `endnote`, `comment`, `deletion`. |
 | `entities` | list | `{type, value, block, start, end, confidence, severity, fingerprint}`. **In `mask` mode `value`, `start` and `end` are null** - the one place a consumer must handle nulls. |
 | `redaction` | dict | `{mode, total, by_type, masked}`. |
 | `sanitized` | dict, **optional** | Present only with `--write-redacted`. A consumer must treat it as absent by default. |
@@ -86,6 +86,11 @@ output predating a change:
 - Block kinds `header`/`footer`/`footnote`/`endnote` did not exist before 1.2.
   They are appended *after* the body blocks precisely so that existing body
   block indexes did not shift.
+- Block kinds `comment` and `deletion` (DOCX) and `annotation` plus
+  form-field `field` blocks (PDF) are newer still, and follow the same rule:
+  DOCX comments come after the endnotes and tracked deletions after
+  everything else; PDF annotations and form fields come after the last page,
+  so a page block's index is still its page number.
 
 ### The baseline file (`--write-baseline`)
 
@@ -201,7 +206,7 @@ way, because the fingerprint never contained the tool name.
 
 ## The tests that would fail
 
-336 of them. Grouped by what they would catch:
+349 of them. Grouped by what they would catch:
 
 - **Positive** - `test_detectors.py` asserts every detector's true positives;
   `test_extractors.py` asserts each of the 11 formats produces the expected

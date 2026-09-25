@@ -105,7 +105,7 @@ python -m venv .venv
 # .venv/bin/python -m pip install -e ".[dev]"           # POSIX
 ```
 
-Run the tests: `.venv/Scripts/pytest -q` (336 tests).
+Run the tests: `.venv/Scripts/pytest -q` (349 tests).
 
 ## Quickstart
 
@@ -315,7 +315,7 @@ Top-level keys, in order:
 | `sha256`            | SHA-256 of the raw input bytes                                          |
 | `size_bytes`        | input size in bytes                                                     |
 | `format`            | one of `pdf`, `docx`, `eml`, `json`, `txt`, `md`, `html`, `csv`, `yaml`, `log`, `ini` |
-| `blocks`            | ordered `{index, kind, text}`; kinds: `page`, `section`, `paragraph`, `element`, `row`, `header` (eml + docx), `footer`, `footnote`, `endnote` (docx), `field` (json) |
+| `blocks`            | ordered `{index, kind, text}`; kinds: `page`, `annotation` (pdf), `section`, `paragraph`, `element`, `row`, `header` (eml + docx), `footer`, `footnote`, `endnote`, `comment`, `deletion` (docx), `field` (json + pdf form fields) |
 | `entities`          | ordered `{type, value, block, start, end, confidence, severity, fingerprint}`; in `mask` mode `value`/`start`/`end` are null |
 | `redaction`         | `{mode, total, by_type, masked}` summary                                |
 | `sanitized`         | only with `--write-redacted`: `{path (basename), manifest}`             |
@@ -340,7 +340,7 @@ src/docredact/
   sarif.py        value-free SARIF 2.1.0 emitter for scan --format sarif
 fixtures/         8 synthetic sample documents + their deterministic generator
 examples/         committed showcase report, sanitized artifact + tree-scan jsonl/sarif (drift-tested)
-tests/            336 pytest tests (unit + subprocess end-to-end + property-based + stress)
+tests/            349 pytest tests (unit + subprocess end-to-end + property-based + stress)
 ```
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the pipeline and the
@@ -384,13 +384,13 @@ Markdown, plain text). Its input surfaces and posture:
   `socket`, `ssl`, `http`, `urllib.request` or `subprocess`, and none reads an
   environment secret. The single import from the URL namespace is
   `urllib.parse.unquote`, used to percent-decode a `mailto:` href out of
-  scanned HTML - string manipulation with no transport behind it.
+  scanned HTML or a PDF link - string manipulation with no transport behind it.
   `tests/test_no_network.py` walks the AST of every source module and fails CI
   if that ever stops being true. (pypdf itself does import `subprocess`, and
   may invoke an external image decoder for JBIG2 images if you have one
   installed - a dependency behaviour, not something DocRedact initiates.)
 - **XML external entities (XXE) / entity expansion.** Every scanned DOCX XML
-  part (body, headers, footers, footnotes, endnotes) is checked for
+  part (body, headers, footers, footnotes, endnotes, comments) is checked for
   `<!DOCTYPE`/`<!ENTITY` and refused before parsing; the stdlib `xml.etree`
   parser does not resolve external entities. HTML uses `html.parser` (no
   DTD/entity-fetch surface). The policy file uses a YAML-*subset* parser with
@@ -402,9 +402,10 @@ Markdown, plain text). Its input surfaces and posture:
   error, never a hang.
 - **Decompression / output-amplification bombs.** pypdf's per-stream cap is
   complemented by an aggregate extracted-text cap (~25 M chars) and a page
-  ceiling for PDFs; DOCX enforces one aggregate byte budget (~100 MB) across
-  *every* scanned XML part - body, headers, footers, footnotes, endnotes -
-  so extra parts cannot multiply the ceiling, rejecting first on the
+  ceiling for PDFs (annotation and form-field text counts against the same
+  cap); DOCX enforces one aggregate byte budget (~100 MB) across
+  *every* scanned XML part - body, headers, footers, footnotes, endnotes,
+  comments - so extra parts cannot multiply the ceiling, rejecting first on the
   advertised uncompressed size and then via a bounded read so a lying zip
   header cannot bypass the guard. EML and JSON expansion is proportional to
   input size.
@@ -414,8 +415,9 @@ Markdown, plain text). Its input surfaces and posture:
 
 What DocRedact does **not** defend against: peak memory proportional to the input
 plus the fixed extraction caps (no streaming mode); DOCX archive members
-other than the scanned XML parts (body, headers, footers, foot/endnotes) are
-not inspected; the `--out`/`--write-redacted`/baseline paths and
+other than the scanned XML parts (body, headers, footers, foot/endnotes,
+comments) are not inspected, and embedded files in a DOCX or PDF are not opened
+(each one produces a `skipped (not scanned)` warning); the `--out`/`--write-redacted`/baseline paths and
 the policy file are trusted CLI-level configuration; detection is heuristic,
 not a guarantee (see Limitations).
 
@@ -442,6 +444,13 @@ not a guarantee (see Limitations).
   `mailto:` hrefs are scanned (since 1.2); other attributes (`title`,
   `data-*`, non-mailto URLs) are not. EML attachments are not scanned
   (skipping them warns visibly).
+- What a DOCX or PDF carries besides its text is scanned only in part. DOCX
+  content controls, comments and tracked deletions are scanned, and so are PDF
+  annotation text, `mailto:` link targets and filled-in form fields; document
+  metadata (PDF Info/XMP, DOCX `docProps`: author, last editor, title), image
+  alt text and DOCX hyperlink targets are not. Embedded files (PDF
+  attachments, DOCX embedded objects) are not opened - each one produces a
+  visible `skipped (not scanned)` warning, like an EML attachment.
 - OCR is out of scope: image-only PDF pages produce an explicit warning.
 - Encrypted or malformed PDFs fail with exit code 1 rather than partial
   extraction.

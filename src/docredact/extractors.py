@@ -11,14 +11,15 @@ import json
 import logging
 import re
 import zipfile
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import unquote
 from xml.etree import ElementTree
 
-from pypdf import PdfReader
+from pypdf import PageObject, PdfReader
+from pypdf.generic import DictionaryObject, NameObject, PdfObject
 
 # pypdf reports non-fatal parser conditions (bad header, missing EOF marker,
 # non-compliant structure it is recovering from, ...) through the stdlib
@@ -240,7 +241,85 @@ def _extract_csv(text: str) -> list[Block]:
     return _blocks("row", (r for r in joined if r))
 
 
+def _pdf_text(value: object) -> str:
+    """A PDF string value as stripped text; "" for names (checkbox states) and non-strings.
+
+    pypdf hands back raw bytes for a string it could not decode as
+    PDFDocEncoding or UTF-16; those are decoded here rather than dropped, so an
+    oddly encoded comment is still scanned.
+    """
+    if isinstance(value, PdfObject):
+        value = value.get_object()
+    if isinstance(value, bytes):
+        raw = value
+        try:
+            value = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            value = raw.decode("latin-1")
+    if isinstance(value, NameObject) or not isinstance(value, str):
+        return ""
+    return value.strip()
+
+
+def _pdf_annotation_texts(page: PageObject, warnings: list[str]) -> Iterator[str]:
+    """Scannable text carried by one page's annotations, one string per annotation.
+
+    Sticky notes, FreeText boxes, commented highlights and the like keep their
+    text in ``/Contents``, outside the page content stream that
+    ``extract_text`` reads, so it was never scanned. A Link's ``mailto:``
+    target is percent-decoded and scanned, as an HTML ``mailto:`` href is.
+    Form widgets are skipped (their values come from the AcroForm walk), and so
+    are Popups, which only display their parent's text. A file attached as an
+    annotation is not opened; it is reported, as an EML attachment is.
+    """
+    annotations = page.get("/Annots")
+    annotations = annotations.get_object() if annotations is not None else None
+    if not isinstance(annotations, list):
+        return
+    for reference in annotations:
+        annotation = reference.get_object() if isinstance(reference, PdfObject) else None
+        if not isinstance(annotation, DictionaryObject):
+            continue
+        subtype = annotation.get("/Subtype")
+        if subtype in ("/Widget", "/Popup"):
+            continue
+        if subtype == "/FileAttachment":
+            warnings.append("embedded file skipped (not scanned)")
+        parts = [_pdf_text(annotation.get("/Contents"))]
+        if subtype == "/Link":
+            action = annotation.get("/A")
+            action = action.get_object() if action is not None else None
+            uri = _pdf_text(action.get("/URI")) if isinstance(action, DictionaryObject) else ""
+            if uri[:7].lower() == "mailto:":
+                parts.append(unquote(uri[7:]))
+        text = " ".join(part for part in parts if part)
+        if text:
+            yield text
+
+
+def _pdf_field_texts(reader: PdfReader) -> Iterator[str]:
+    """``name: value`` for every filled-in AcroForm field.
+
+    A filled form shows its values through widget appearance streams, not the
+    page content, so a typed-in email or phone number never reached a
+    detector. Checkbox and radio states are names (``/Yes``), not text, and
+    are skipped; a multi-select list's values are joined with ", ".
+    """
+    for name, field in (reader.get_fields() or {}).items():
+        value = field.get("/V")
+        value = value.get_object() if isinstance(value, PdfObject) else value
+        values = value if isinstance(value, list) else [value]
+        text = ", ".join(t for t in (_pdf_text(v) for v in values) if t)
+        if text:
+            yield f"{name}: {text}"
+
+
 def _extract_pdf(data: bytes) -> tuple[list[Block], list[str]]:
+    """Extract one block per page, then annotation text, then filled form fields.
+
+    Page blocks keep index == page number; ``annotation`` blocks (page order)
+    and ``field`` blocks follow, so no page block index moves.
+    """
     try:
         reader = PdfReader(io.BytesIO(data))
         pages = list(reader.pages)
@@ -250,6 +329,8 @@ def _extract_pdf(data: bytes) -> tuple[list[Block], list[str]]:
     # small stream and re-emit it, so a 12 KB / 50-page PDF can expand to
     # 100 M chars and burn minutes of CPU. Bound the AGGREGATE extracted text
     # (and page count) so total work stays proportional to a sane document.
+    # Annotation and field text counts too: many annotations can share one
+    # string object in the same way.
     if len(pages) > _PDF_MAX_PAGES:
         raise ExtractionError(
             f"failed to parse PDF: too many pages ({len(pages)} > {_PDF_MAX_PAGES})"
@@ -257,12 +338,9 @@ def _extract_pdf(data: bytes) -> tuple[list[Block], list[str]]:
     blocks: list[Block] = []
     warnings: list[str] = []
     total_chars = 0
-    for i, page in enumerate(pages):
-        try:
-            text = (page.extract_text() or "").strip()
-        except Exception as exc:
-            text = ""
-            warnings.append(f"page {i}: text extraction failed ({exc})")
+
+    def charge(text: str) -> str:
+        nonlocal total_chars
         total_chars += len(text)
         if total_chars > _PDF_MAX_TEXT_CHARS:
             raise ExtractionError(
@@ -270,12 +348,43 @@ def _extract_pdf(data: bytes) -> tuple[list[Block], list[str]]:
                 f"{_PDF_MAX_TEXT_CHARS}-character aggregate cap "
                 "(possible decompression / output-amplification bomb)"
             )
+        return text
+
+    extra: list[tuple[str, str]] = []  # (kind, text), appended after the pages
+    for i, page in enumerate(pages):
+        try:
+            text = (page.extract_text() or "").strip()
+        except Exception as exc:
+            text = ""
+            warnings.append(f"page {i}: text extraction failed ({exc})")
+        charge(text)
         if not text:
             warnings.append(
                 f"page {i}: no extractable text (image-only pages need OCR, "
                 "which is out of scope)"
             )
         blocks.append(Block(i, "page", text))
+        try:
+            for note in _pdf_annotation_texts(page, warnings):
+                extra.append(("annotation", charge(note)))
+        except ExtractionError:
+            raise
+        except Exception as exc:
+            warnings.append(f"page {i}: annotations could not be read ({exc})")
+    try:
+        for field in _pdf_field_texts(reader):
+            extra.append(("field", charge(field)))
+    except ExtractionError:
+        raise
+    except Exception as exc:
+        warnings.append(f"form fields could not be read ({exc})")
+    try:
+        embedded = len(reader.attachments)
+    except Exception as exc:
+        embedded = 0
+        warnings.append(f"embedded files could not be listed ({exc})")
+    warnings.extend(["embedded file skipped (not scanned)"] * embedded)
+    blocks.extend(Block(len(blocks) + n, kind, text) for n, (kind, text) in enumerate(extra))
     return blocks, warnings
 
 
@@ -300,13 +409,72 @@ def _docx_paragraph_text(paragraph: ElementTree.Element) -> str:
     return "".join(parts).strip()
 
 
+def _docx_children(element: Iterable[ElementTree.Element]) -> Iterator[ElementTree.Element]:
+    """Yield ``element``'s children with block-level wrappers flattened away.
+
+    Word wraps ordinary paragraphs, table rows and table cells in content
+    controls (``w:sdt``, whose text lives in ``w:sdtContent``) and in custom-XML
+    markup (``w:customXml``): cover pages, tables of contents, the page-number
+    footer gallery and form templates are all built that way. Looking only at
+    direct w:p/w:tbl/w:tr/w:tc children dropped that text without a warning.
+    The walk is iterative, so hostile nesting cannot exhaust the stack.
+    """
+    stack = [iter(element)]
+    while stack:
+        for child in stack[-1]:
+            if child.tag == f"{_W}sdt":
+                content = child.find(f"{_W}sdtContent")
+                if content is not None:
+                    stack.append(iter(content))
+                    break
+            elif child.tag == f"{_W}customXml":
+                stack.append(iter(child))
+                break
+            else:
+                yield child
+        else:
+            stack.pop()
+
+
 def _docx_row_text(row: ElementTree.Element) -> str:
     """Join a w:tr element's cells with ", " (mirrors the csv extractor)."""
     cells = []
-    for cell in row.findall(f"{_W}tc"):
+    for cell in _docx_children(row):
+        if cell.tag != f"{_W}tc":
+            continue
         texts = (_docx_paragraph_text(p) for p in cell.iter(f"{_W}p"))
         cells.append(" ".join(t for t in texts if t))
     return ", ".join(cells).strip()
+
+
+def _docx_deleted_texts(root: ElementTree.Element) -> list[str]:
+    """Text of the tracked deletions in one part, one string per contiguous deletion.
+
+    Deleted runs keep their text in ``w:delText`` (never ``w:t``), so the
+    paragraph walk above never sees it -- yet it is still in the file, and
+    Word shows it to anyone who turns on All Markup. Deleted runs that follow
+    each other directly (Word splits a revision wherever formatting changes)
+    are joined with no separator, like live runs; live text or a paragraph
+    boundary ends a deletion.
+    """
+    segments: list[str] = []
+    current: list[str] = []
+    for node in root.iter():
+        if node.tag == f"{_W}delText":
+            current.append(node.text or "")
+        elif node.tag in (f"{_W}t", f"{_W}p"):
+            text = "".join(current).strip()
+            if text:
+                segments.append(text)
+            current.clear()
+        elif current and node.tag == f"{_W}tab":
+            current.append("\t")
+        elif current and node.tag in (f"{_W}br", f"{_W}cr"):
+            current.append("\n")
+    text = "".join(current).strip()
+    if text:
+        segments.append(text)
+    return segments
 
 
 # Header and footer parts are numbered by Word (word/header1.xml, ...); the
@@ -314,11 +482,20 @@ def _docx_row_text(row: ElementTree.Element) -> str:
 # never the zip's listing order.
 _DOCX_PART_RE = re.compile(r"^word/(header|footer)([1-9]\d*)\.xml$")
 
-# Note-container parts: (part name, element localname, block kind).
+# Note-container parts: (part name, block kind). Each part holds one element
+# per note, named after the kind (w:footnote, w:endnote, w:comment), and each
+# of those wraps ordinary paragraphs and tables.
 _DOCX_NOTE_PARTS = (
     ("word/footnotes.xml", "footnote"),
     ("word/endnotes.xml", "endnote"),
+    ("word/comments.xml", "comment"),
 )
+_DOCX_NOTE_KINDS = frozenset(kind for _, kind in _DOCX_NOTE_PARTS)
+
+# Embedded objects (an Excel sheet pasted into a report, an OLE object) are
+# whole second documents in their own formats. They are not scanned, and each
+# one says so, the way an EML attachment does.
+_DOCX_EMBEDDINGS_PREFIX = "word/embeddings/"
 
 
 def _read_docx_xml(
@@ -369,17 +546,20 @@ def _docx_container_blocks(
     """Append paragraph and table-row blocks from one w:p/w:tbl container.
 
     Paragraphs take ``paragraph_kind`` (paragraph/header/footer/footnote/
-    endnote, so a finding names where in the document it lives); table rows are
-    always ``row``, mirroring the csv extractor. Anything else (sectPr, ...) is
+    endnote/comment, so a finding names where in the document it lives); table
+    rows are always ``row``, mirroring the csv extractor. Content controls and
+    custom-XML wrappers are looked through; anything else (sectPr, ...) is
     structure, not text, and is skipped.
     """
-    for element in container:
+    for element in _docx_children(container):
         if element.tag == f"{_W}p":
             text = _docx_paragraph_text(element)
             if text:
                 blocks.append(Block(len(blocks), paragraph_kind, text))
         elif element.tag == f"{_W}tbl":
-            for row in element.findall(f"{_W}tr"):
+            for row in _docx_children(element):
+                if row.tag != f"{_W}tr":
+                    continue
                 text = _docx_row_text(row)
                 if text:
                     blocks.append(Block(len(blocks), "row", text))
@@ -388,10 +568,10 @@ def _docx_container_blocks(
 def _docx_extra_parts(names: list[str]) -> list[tuple[str, str]]:
     """Deterministic (kind, part name) scan order for non-body parts.
 
-    Headers first (numeric order), then footers, then footnotes/endnotes --
-    a fixed order independent of how the zip happens to list its members, so
-    block indexes (and the sanitized artifact built from them) never depend
-    on which tool produced the archive.
+    Headers first (numeric order), then footers, then footnotes, endnotes and
+    comments -- a fixed order independent of how the zip happens to list its
+    members, so block indexes (and the sanitized artifact built from them)
+    never depend on which tool produced the archive.
     """
     numbered: dict[str, list[tuple[int, str]]] = {"header": [], "footer": []}
     for name in names:
@@ -410,11 +590,12 @@ def _docx_extra_parts(names: list[str]) -> list[tuple[str, str]]:
 
 
 def _extract_docx(data: bytes) -> tuple[list[Block], list[str]]:
-    """Extract body paragraphs/table rows plus header, footer, and foot/endnote text.
+    """Extract body paragraphs/table rows plus header, footer, note, comment and deleted text.
 
     Body blocks come first (their indexes match pre-1.2 output exactly), then
-    headers, footers, footnotes, and endnotes -- closing the documented blind
-    spot where a secret in a header/footer/footnote was never scanned.
+    headers, footers, footnotes, endnotes, comments, and finally the text of
+    tracked deletions from all of those parts -- each new kind appended after
+    the ones before it, so no existing block index moves.
     """
     try:
         with zipfile.ZipFile(io.BytesIO(data)) as archive:
@@ -424,6 +605,11 @@ def _extract_docx(data: bytes) -> tuple[list[Block], list[str]]:
             for kind, name in _docx_extra_parts(archive.namelist()):
                 part_root, budget = _read_docx_xml(archive, name, budget)
                 extras.append((kind, part_root))
+            embedded = sum(
+                1
+                for name in archive.namelist()
+                if name.startswith(_DOCX_EMBEDDINGS_PREFIX) and not name.endswith("/")
+            )
     except zipfile.BadZipFile as exc:
         raise ExtractionError(f"failed to parse DOCX: {exc}") from exc
     except KeyError as exc:
@@ -435,15 +621,19 @@ def _extract_docx(data: bytes) -> tuple[list[Block], list[str]]:
     body = root.find(f"{_W}body")
     _docx_container_blocks(body if body is not None else (), "paragraph", blocks)
     for kind, part_root in extras:
-        if kind in ("footnote", "endnote"):
-            # Each w:footnote/w:endnote wraps its own paragraphs; Word's
-            # separator/continuationSeparator stub notes carry no text and
-            # therefore produce no blocks.
+        if kind in _DOCX_NOTE_KINDS:
+            # Each w:footnote/w:endnote/w:comment wraps its own paragraphs;
+            # Word's separator/continuationSeparator stub notes carry no text
+            # and therefore produce no blocks.
             for note in part_root.findall(f"{_W}{kind}"):
                 _docx_container_blocks(note, kind, blocks)
         else:
             _docx_container_blocks(part_root, kind, blocks)
+    for part_root in (root, *(part for _, part in extras)):
+        for text in _docx_deleted_texts(part_root):
+            blocks.append(Block(len(blocks), "deletion", text))
     warnings = [] if blocks else ["no text blocks extracted"]
+    warnings.extend(["embedded object skipped (not scanned)"] * embedded)
     return blocks, warnings
 
 

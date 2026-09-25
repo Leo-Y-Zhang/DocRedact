@@ -7,8 +7,19 @@ import io
 import sys
 import zipfile
 from pathlib import Path
+from typing import Any
 
 import pytest
+from pypdf import PdfReader, PdfWriter
+from pypdf.annotations import FreeText, Link, Text
+from pypdf.generic import (
+    ArrayObject,
+    ByteStringObject,
+    DictionaryObject,
+    NameObject,
+    NumberObject,
+    TextStringObject,
+)
 
 from docredact import extractors
 from docredact.core import build_document
@@ -292,6 +303,134 @@ def test_docx_bomb_in_footnotes_part_raises(monkeypatch: pytest.MonkeyPatch) -> 
         extract_blocks(buffer.getvalue(), "docx")
 
 
+# -- DOCX content controls, tracked deletions, comments, embedded objects -------
+
+
+def _sdt(inner: str) -> str:
+    """Wrap ``inner`` in a content control, the way Word writes one."""
+    return f"<w:sdt><w:sdtPr><w:alias w:val='c'/></w:sdtPr><w:sdtContent>{inner}</w:sdtContent></w:sdt>"
+
+
+def test_docx_content_controls_are_scanned() -> None:
+    # Cover pages, tables of contents and form templates wrap ordinary
+    # paragraphs, rows and cells in content controls (w:sdt) or custom-XML
+    # markup. That text is on the page, and it was dropped without a warning.
+    cell = f"<w:tc>{_WP % 'cell'}</w:tc>"
+    secret_cell = f"<w:tc>{_WP % 'AKIAIOSFODNN7EXAMPLE'}</w:tc>"
+    body = (
+        _WP % "first"
+        + _sdt(_WP % "control jane.doe@example.com")
+        + f"<w:customXml w:element='x'>{_WP % 'custom'}</w:customXml>"
+        + "<w:tbl><w:tblPr/>"
+        + _sdt(f"<w:tr>{cell}</w:tr>")
+        + f"<w:tr>{cell}{_sdt(secret_cell)}</w:tr>"
+        + "</w:tbl>"
+        + _sdt(_sdt(_WP % "nested"))
+        + _WP % "last"
+    )
+    data = _mini_docx({"word/document.xml": _mini_document(body)})
+    blocks, warnings = extract_blocks(data, "docx")
+    assert warnings == []
+    assert [(b.kind, b.text) for b in blocks] == [
+        ("paragraph", "first"),
+        ("paragraph", "control jane.doe@example.com"),
+        ("paragraph", "custom"),
+        ("row", "cell"),
+        ("row", "cell, AKIAIOSFODNN7EXAMPLE"),
+        ("paragraph", "nested"),
+        ("paragraph", "last"),
+    ]
+
+
+def test_docx_content_control_in_footer_is_scanned() -> None:
+    # Word's page-number footer gallery puts the whole footer in a content control.
+    footer = f"<w:ftr {_W_XMLNS}>{_sdt(_WP % 'Page 1 - footer.owner@example.com')}</w:ftr>"
+    data = _mini_docx(
+        {"word/document.xml": _mini_document(_WP % "body"), "word/footer1.xml": footer}
+    )
+    blocks, _ = extract_blocks(data, "docx")
+    assert [b.text for b in blocks if b.kind == "footer"] == ["Page 1 - footer.owner@example.com"]
+
+
+def test_docx_deeply_nested_content_controls_do_not_crash() -> None:
+    # The unwrapping is iterative, so hostile nesting cannot hit the recursion limit.
+    depth = 5_000
+    body = "<w:sdt><w:sdtContent>" * depth + _WP % "deep" + "</w:sdtContent></w:sdt>" * depth
+    blocks, _ = extract_blocks(_mini_docx({"word/document.xml": _mini_document(body)}), "docx")
+    assert [b.text for b in blocks] == ["deep"]
+
+
+def _deleted(text: str) -> str:
+    return f"<w:del w:id='1' w:author='A'><w:r><w:delText>{text}</w:delText></w:r></w:del>"
+
+
+def test_docx_tracked_deletions_are_scanned() -> None:
+    # Deleted text stays in the file as w:delText and shows to anyone who turns
+    # on All Markup, but it was never read: a card number deleted with Track
+    # Changes on passed --redact strict.
+    body = (
+        "<w:p><w:r><w:t>Card: </w:t></w:r>"
+        + _deleted("4111 1111 ")
+        + _deleted("1111 1111")  # a second revision directly after the first
+        + "<w:r><w:t>[removed]</w:t></w:r>"
+        + _deleted("old.owner@example.com")  # separated by live text: its own block
+        + "</w:p>"
+        + _WP % "after"
+    )
+    data = _mini_docx({"word/document.xml": _mini_document(body)})
+    blocks, warnings = extract_blocks(data, "docx")
+    assert warnings == []
+    # The live text is unchanged, and the deleted text comes after everything
+    # else (so no existing block index moves), one block per contiguous deletion.
+    assert [(b.kind, b.text) for b in blocks] == [
+        ("paragraph", "Card: [removed]"),
+        ("paragraph", "after"),
+        ("deletion", "4111 1111 1111 1111"),
+        ("deletion", "old.owner@example.com"),
+    ]
+
+
+def test_docx_tracked_deletion_findings_reach_the_report(tmp_path: Path) -> None:
+    footer = f"<w:ftr {_W_XMLNS}><w:p>{_deleted('AKIAIOSFODNN7EXAMPLE')}</w:p></w:ftr>"
+    body = _mini_document(f"<w:p>{_deleted('4111111111111111')}</w:p>")
+    path = tmp_path / "revised.docx"
+    path.write_bytes(_mini_docx({"word/document.xml": body, "word/footer1.xml": footer}))
+    doc = build_document(path, redact="strict")
+    found = {(e["type"], e["value"]) for e in doc["entities"]}  # type: ignore[union-attr]
+    assert found == {("credit_card", "4111111111111111"), ("api_key", "AKIAIOSFODNN7EXAMPLE")}
+
+
+def test_docx_comments_are_scanned() -> None:
+    comments = (
+        f"<w:comments {_W_XMLNS}><w:comment w:id='0' w:author='Reviewer'>"
+        + _WP % "Ask reviewer.one@example.com before sending"
+        + "</w:comment></w:comments>"
+    )
+    data = build_docx((("body",),), (), footnotes=("a note",))
+    with zipfile.ZipFile(io.BytesIO(data)) as source:
+        parts = {name: source.read(name).decode() for name in source.namelist()}
+    parts["word/comments.xml"] = comments
+    blocks, _ = extract_blocks(_mini_docx(parts), "docx")
+    # Comments come after the notes, so no earlier block index moves.
+    assert [b.kind for b in blocks][-2:] == ["footnote", "comment"]
+    assert blocks[-1].text == "Ask reviewer.one@example.com before sending"
+
+
+def test_docx_embedded_objects_warn_that_they_were_not_scanned() -> None:
+    # An embedded workbook is a second document that is not scanned, so
+    # "0 findings" must not read as a clean bill of health for it.
+    data = _mini_docx(
+        {
+            "word/document.xml": _mini_document(_WP % "body"),
+            "word/embeddings/Microsoft_Excel_Worksheet.xlsx": "PK",
+            "word/embeddings/oleObject1.bin": "ole",
+            "word/media/image1.png": "png",
+        }
+    )
+    _, warnings = extract_blocks(data, "docx")
+    assert warnings == ["embedded object skipped (not scanned)"] * 2
+
+
 def test_docx_not_a_zip_raises(tmp_path: Path) -> None:
     path = tmp_path / "broken.docx"
     path.write_bytes(b"this is not a zip archive")
@@ -422,6 +561,140 @@ def test_pdf_page_count_cap_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(extractors, "_PDF_MAX_PAGES", 3)
     data = build_pdf(tuple(("page",) for _ in range(5)))
     with pytest.raises(ExtractionError, match="too many pages"):
+        extract_blocks(data, "pdf")
+
+
+# -- PDF annotations, form fields, embedded files ---------------------------------
+
+
+def _pdf_with(
+    annotations: tuple[tuple[int, Any], ...] = (),
+    fields: tuple[tuple[str, Any], ...] = (),
+    attachment: bytes | None = None,
+) -> bytes:
+    """The two-page fixture-style PDF plus annotations, filled form fields and a file.
+
+    ``fields`` are (field name, /V value) pairs, each written as a text-field
+    widget on page 0 and listed in the AcroForm, the way a filled form is saved.
+    """
+    base = build_pdf((("page one",), ("page two",)))
+    writer = PdfWriter(clone_from=PdfReader(io.BytesIO(base)))
+    for page_number, annotation in annotations:
+        writer.add_annotation(page_number, annotation)
+    widgets = ArrayObject()
+    for name, value in fields:
+        widget = DictionaryObject(
+            {
+                NameObject("/Type"): NameObject("/Annot"),
+                NameObject("/Subtype"): NameObject("/Widget"),
+                NameObject("/FT"): NameObject("/Tx"),
+                NameObject("/T"): TextStringObject(name),
+                NameObject("/V"): value,
+                NameObject("/Rect"): ArrayObject([NumberObject(n) for n in (72, 600, 272, 620)]),
+            }
+        )
+        widgets.append(writer._add_object(widget))
+    if fields:
+        writer.pages[0][NameObject("/Annots")] = widgets
+        writer._root_object[NameObject("/AcroForm")] = DictionaryObject(
+            {NameObject("/Fields"): widgets}
+        )
+    if attachment is not None:
+        writer.add_attachment("notes.txt", attachment)
+    buffer = io.BytesIO()
+    writer.write(buffer)
+    return buffer.getvalue()
+
+
+def test_pdf_annotation_text_is_scanned(tmp_path: Path) -> None:
+    # A FreeText box is drawn on the page and a sticky note opens with one
+    # click, but neither is in the page content stream that extract_text reads.
+    data = _pdf_with(
+        (
+            (1, FreeText(text="Key AKIAIOSFODNN7EXAMPLE", rect=(72, 500, 272, 540))),
+            (0, Text(text="Reviewer: call +1-555-0142", rect=(72, 500, 92, 520))),
+        )
+    )
+    blocks, warnings = extract_blocks(data, "pdf")
+    assert warnings == []
+    # Page blocks keep index == page number; annotations follow in page order.
+    assert [(b.kind, b.text) for b in blocks] == [
+        ("page", "page one"),
+        ("page", "page two"),
+        ("annotation", "Reviewer: call +1-555-0142"),
+        ("annotation", "Key AKIAIOSFODNN7EXAMPLE"),
+    ]
+    path = tmp_path / "reviewed.pdf"
+    path.write_bytes(data)
+    found = {e["type"] for e in build_document(path)["entities"]}  # type: ignore[union-attr]
+    assert found == {"phone", "api_key"}
+
+
+def test_pdf_annotation_text_pypdf_cannot_decode_is_still_scanned() -> None:
+    # UTF-8 written straight into a PDF string (common, and not PDFDocEncoding)
+    # comes back from pypdf as raw bytes; it must be decoded, not dropped.
+    note = Text(text="placeholder", rect=(72, 500, 92, 520))
+    note[NameObject("/Contents")] = ByteStringObject(
+        "café bytes.owner@example.com \x9f".encode()
+    )
+    blocks, _ = extract_blocks(_pdf_with(((0, note),)), "pdf")
+    assert [b.text for b in blocks if b.kind == "annotation"] == [
+        "café bytes.owner@example.com \x9f"
+    ]
+
+
+def test_pdf_link_mailto_target_is_scanned() -> None:
+    # The PDF twin of the HTML mailto: rule: the address behind "Contact us"
+    # is percent-decoded and scanned; other link targets are not injected.
+    data = _pdf_with(
+        (
+            (0, Link(rect=(72, 500, 272, 520), url="mailto:hidden%40example.com?cc=cc@example.com")),
+            (0, Link(rect=(72, 400, 272, 420), url="https://example.com/help")),
+        )
+    )
+    blocks, _ = extract_blocks(data, "pdf")
+    annotations = [b.text for b in blocks if b.kind == "annotation"]
+    assert annotations == ["hidden@example.com?cc=cc@example.com"]
+
+
+def test_pdf_filled_form_field_values_are_scanned(tmp_path: Path) -> None:
+    # A filled form shows its values through widget appearance streams, not the
+    # page content, so every typed-in email or phone number was invisible.
+    data = _pdf_with(
+        fields=(
+            ("email", TextStringObject("jane.doe@example.com")),
+            ("agree", NameObject("/Yes")),  # a checkbox state is not text
+            ("cc", ArrayObject([TextStringObject("a@example.com"), TextStringObject("b@example.com")])),
+            ("empty", TextStringObject("")),
+        )
+    )
+    blocks, warnings = extract_blocks(data, "pdf")
+    assert warnings == []
+    assert [(b.kind, b.text) for b in blocks if b.kind != "page"] == [
+        ("field", "email: jane.doe@example.com"),
+        ("field", "cc: a@example.com, b@example.com"),
+    ]
+    path = tmp_path / "form.pdf"
+    path.write_bytes(data)
+    values = {e["value"] for e in build_document(path)["entities"]}  # type: ignore[union-attr]
+    assert values == {"jane.doe@example.com", "a@example.com", "b@example.com"}
+
+
+def test_pdf_embedded_file_warns_that_it_was_not_scanned() -> None:
+    data = _pdf_with(attachment=b"AKIAIOSFODNN7EXAMPLE")
+    blocks, warnings = extract_blocks(data, "pdf")
+    assert warnings == ["embedded file skipped (not scanned)"]
+    assert [b.kind for b in blocks] == ["page", "page"]
+
+
+def test_pdf_annotation_text_counts_toward_the_aggregate_cap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Annotations can share one string object, so they are held to the same
+    # aggregate ceiling as page text rather than getting a free pass.
+    monkeypatch.setattr(extractors, "_PDF_MAX_TEXT_CHARS", 100)
+    data = _pdf_with(((0, Text(text="Z" * 120, rect=(72, 500, 92, 520))),))
+    with pytest.raises(ExtractionError, match="aggregate cap"):
         extract_blocks(data, "pdf")
 
 

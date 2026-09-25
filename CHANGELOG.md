@@ -44,6 +44,43 @@ is attempted before the lossy one so that undecodable bytes produce a visible
 `input is not valid utf-8` warning instead of nothing. PDF, DOCX, and EML are
 unaffected: they never went through this path.
 
+### Fixed - DOCX text inside content controls, comments and tracked deletions was never scanned
+
+Three kinds of DOCX text reached no detector and produced no warning, so
+`--redact strict` exited 0 on a document that plainly carried the value:
+
+- **Content controls.** Only direct `w:p`/`w:tbl` children of the body (and of
+  each header, footer and note) were read, so any paragraph, table row or
+  table cell wrapped in a content control (`w:sdt`) or custom-XML markup was
+  dropped - which covers Word's cover pages, tables of contents, the
+  page-number footer gallery and most form templates. That text is now read
+  in place. Body block indexes after such a control move, because the
+  skipped text now takes its place in the order; baselines are unaffected,
+  since fingerprints never contained a block index.
+- **Tracked deletions.** Deleted text is kept in the file as `w:delText` and
+  shown to anyone who turns on All Markup, but the extractor only read `w:t`.
+  It is now scanned as new `deletion` blocks, one per contiguous deletion,
+  appended after everything else.
+- **Comments.** `word/comments.xml` is now scanned as `comment` blocks after
+  the endnotes, under the same aggregate size budget and DTD refusal as every
+  other part.
+
+Embedded objects (`word/embeddings/`) are still not opened, but each one now
+produces an `embedded object skipped (not scanned)` warning instead of
+nothing.
+
+### Fixed - PDF annotations and filled-in form fields were never scanned
+
+Only the page content stream went through a detector. A filled-in form shows
+its values through widget appearance streams, and a FreeText box or sticky
+note keeps its text in the annotation, so a typed-in email or a key pasted
+into a comment scanned as zero findings. Annotation text (and a Link's
+`mailto:` target, percent-decoded as for HTML) now becomes `annotation`
+blocks, and every filled-in form field a `name: value` `field` block, both
+appended after the last page so page block indexes still equal page numbers.
+Both count against the existing aggregate text cap. Embedded files are not
+opened; each produces an `embedded file skipped (not scanned)` warning.
+
 Entries below this line describe releases made under the old name and are
 left as they were written.
 
