@@ -376,3 +376,36 @@ class TestDocxPartCoverageFlowsThroughTheGate:
         assert result["ruleId"] == "email"
         assert result["partialFingerprints"]["docredactFingerprint/v1"] == finding["fingerprint"]
         assert "footer.leak@example.com" not in proc.stdout  # sarif stays value-free
+
+
+class TestExtractionWarningsReachTheGate:
+    """Every extraction warning ``extract`` puts in its JSON must also surface from
+    ``scan``: an undecodable file or a skipped attachment is text the gate did not
+    read, and a quiet exit 0 must not pass for a clean bill of health."""
+
+    def test_warnings_go_to_stderr_with_the_file_path(self, tmp_path: Path) -> None:
+        root = tmp_path / "tree"
+        (root / "sub").mkdir(parents=True)
+        # cp1252 text with no BOM: decoded lossily, so part of it was not scanned.
+        (root / "legacy.txt").write_bytes("caf\xe9 menu, nothing sensitive".encode("cp1252"))
+        (root / "sub" / "mail.eml").write_text(
+            "From: a@example.com\nSubject: s\nMIME-Version: 1.0\n"
+            'Content-Type: multipart/mixed; boundary="B"\n\n'
+            "--B\nContent-Type: text/plain\n\nhello\n"
+            "--B\nContent-Type: application/octet-stream\n"
+            'Content-Disposition: attachment; filename="k.bin"\n\nxyz\n--B--\n',
+            encoding="utf-8",
+        )
+        proc = _run("scan", str(root), "--redact", "strict", "--format", "jsonl")
+        assert proc.returncode == 3  # the From: address; exit codes are unchanged
+        assert [json.loads(line)["path"] for line in proc.stdout.splitlines()] == ["sub/mail.eml"]
+        assert proc.stderr.splitlines() == [
+            "warning: legacy.txt: input is not valid utf-8: undecodable bytes were "
+            "replaced, so some text may not have been scanned",
+            "warning: sub/mail.eml: attachment skipped (not scanned): application/octet-stream",
+        ]
+
+    def test_clean_fixture_scan_stays_quiet(self) -> None:
+        proc = _run("scan", str(FIXTURES))
+        assert proc.returncode == 0
+        assert proc.stderr == ""

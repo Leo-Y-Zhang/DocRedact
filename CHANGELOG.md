@@ -81,6 +81,16 @@ appended after the last page so page block indexes still equal page numbers.
 Both count against the existing aggregate text cap. Embedded files are not
 opened; each produces an `embedded file skipped (not scanned)` warning.
 
+### Fixed - `scan` dropped every extraction warning
+
+`extract` records extraction warnings in its JSON, but `scan` threw them away:
+none of the table, JSONL or SARIF outputs carried them and nothing reached
+stderr. A tree holding a legacy-encoded text file or an email with an
+attachment therefore passed `scan --redact strict` in complete silence, even
+though part of it was never read - exactly what the decoding fix above
+promised could not happen. Each warning now goes to stderr as
+`warning: <path>: <message>`; stdout and exit codes are unchanged.
+
 Entries below this line describe releases made under the old name and are
 left as they were written.
 

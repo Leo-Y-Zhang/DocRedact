@@ -105,7 +105,7 @@ python -m venv .venv
 # .venv/bin/python -m pip install -e ".[dev]"           # POSIX
 ```
 
-Run the tests: `.venv/Scripts/pytest -q` (349 tests).
+Run the tests: `.venv/Scripts/pytest -q` (351 tests).
 
 ## Quickstart
 
@@ -265,7 +265,10 @@ The baseline file may live inside the scanned tree: like `.docredact.yaml`, it i
 treated as the gate's own state, not a document, and is excluded from
 scanning. Each JSONL line carries `path` (tree-relative posix, never an
 absolute path) followed by the documented entity fields; `--redact mask`
-nulls `value`/`start`/`end` there too.
+nulls `value`/`start`/`end` there too. Extraction warnings - the same ones
+`extract` records in its JSON, such as undecodable bytes, a skipped attachment
+or an image-only PDF page - go to stderr as `warning: <path>: <message>`, so
+stdout stays pure output; they do not change the exit code.
 
 Two honest caveats. First, the gate only vouches for files it parsed - a
 broken file exits 1 instead of passing silently; fix it or exclude it with
@@ -340,7 +343,7 @@ src/docredact/
   sarif.py        value-free SARIF 2.1.0 emitter for scan --format sarif
 fixtures/         8 synthetic sample documents + their deterministic generator
 examples/         committed showcase report, sanitized artifact + tree-scan jsonl/sarif (drift-tested)
-tests/            349 pytest tests (unit + subprocess end-to-end + property-based + stress)
+tests/            351 pytest tests (unit + subprocess end-to-end + property-based + stress)
 ```
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the pipeline and the

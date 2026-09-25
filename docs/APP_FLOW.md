@@ -60,6 +60,7 @@ by running the command.
 | **Empty tree** (`--format table`) | `no matching files` | - | 0 |
 | **Empty tree** (`--format sarif`) | A complete, valid, empty SARIF run - `"results": []` | `no matching files` moves here, so the machine output stays parseable | 0 |
 | **Policy applied** | unchanged | `policy: applying <path>` on every run, plus one `warning:` line per malformed element - `warning: policy has unknown key 'bogus'` | unchanged |
+| **Extraction warnings** (undecodable bytes, skipped attachment or embedded file, image-only PDF page) | unchanged | one `warning: <path>: <message>` line per warning | unchanged |
 | **Baseline suppressing** | only the new findings | `baseline: 6 finding(s) suppressed, 1 new` | 0 or 3 |
 | **Strict, findings present** | the report | - | **3** |
 | **Error - target is not a directory** | - | `docredact: error: not a directory: fixtures/sample.txt` | 1 |

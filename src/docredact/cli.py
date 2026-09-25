@@ -283,6 +283,13 @@ def _cmd_scan(args: argparse.Namespace) -> int:
             entries.append((name, None))
             errors += 1
             continue
+        # The same warnings extract puts in its JSON (undecodable bytes, a
+        # skipped attachment, an image-only page): text the gate did not read.
+        # None of the scan formats has room for them, so they go to stderr.
+        warnings = document["warnings"]
+        assert isinstance(warnings, list)
+        for warning in warnings:
+            print(f"warning: {name}: {warning}", file=sys.stderr)
         entries.append((name, document))
 
     # One flat findings list for the whole tree: each finding is the entity dict
