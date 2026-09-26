@@ -105,7 +105,7 @@ python -m venv .venv
 # .venv/bin/python -m pip install -e ".[dev]"           # POSIX
 ```
 
-Run the tests: `.venv/Scripts/pytest -q` (413 tests).
+Run the tests: `.venv/Scripts/pytest -q` (422 tests).
 
 ## Quickstart
 
@@ -348,7 +348,7 @@ src/docredact/
   sarif.py        value-free SARIF 2.1.0 emitter for scan --format sarif
 fixtures/         8 synthetic sample documents + their deterministic generator
 examples/         committed showcase report, sanitized artifact + tree-scan jsonl/sarif (drift-tested)
-tests/            413 pytest tests (unit + subprocess end-to-end + property-based + stress)
+tests/            422 pytest tests (unit + subprocess end-to-end + property-based + stress)
 ```
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the pipeline and the
@@ -461,9 +461,12 @@ overwrite an input or each other; detection is heuristic, not a guarantee
   revision still holds. Not read, and reported `not scanned:` so strict mode
   fails: embedded files and objects, macros and other binary DOCX parts,
   altChunk-imported content. Still not inspected at all: DOCX charts, SmartArt,
-  custom XML data parts, the glossary, tracked-change author names and
-  field codes other than `HYPERLINK`; PDF bookmarks, JavaScript, XFA form
-  data and objects no page references.
+  custom XML data parts, the glossary, document variables (`w:docVar` in
+  `word/settings.xml`), content-control tags, tracked-change and comment
+  author names and field codes other than `HYPERLINK`; PDF bookmarks,
+  JavaScript, XFA form data, annotation author and subject entries, form-field
+  default values and tooltips, link actions other than a direct `/URI`, and
+  objects no page references.
 - OCR is out of scope: an image-only PDF page (one that draws something but
   yields no text) is reported `not scanned:`, which fails strict mode. Images
   inside a page or a DOCX are not flagged.

@@ -62,7 +62,8 @@ prints each gap as a `docredact: error:` line; `scan` names each partially
 read file. Report and mask modes still write their output, warnings included,
 and exit as before. New gaps: DOCX embedded objects, macros and other binary
 parts (images and printer settings excepted) and altChunk-imported content;
-PDF embedded files (by name), fonts without a Unicode mapping, U+FFFD in
+PDF embedded files (by name), fonts without a Unicode mapping (including
+those used only inside a form XObject or an annotation's appearance), U+FFFD in
 extracted text, and an earlier revision that cannot be opened. The existing
 warnings were reworded to the prefix (`attachment skipped (not scanned): X`
 is now `not scanned: attachment (X)`). A blank PDF page no longer warns.
@@ -96,8 +97,9 @@ now scanned and reported, as new block kinds appended after the existing ones
   `KeyAKIAIOSFODNN7EXAMPLEjane.doe@example.com` hid the key inside one "email".
 - **`deletion`** - DOCX tracked deletions (`w:delText`).
 - **`comment`** - `word/comments.xml`.
-- **`annotation`** and form **`field`** - PDF sticky notes, FreeText boxes and
-  filled-in AcroForm values.
+- **`annotation`** and form **`field`** - PDF sticky notes, FreeText boxes,
+  text an annotation only draws (a stamp, a FreeText box or widget saved with
+  just its appearance) and filled-in AcroForm values.
 - **`metadata`** - PDF Info and XMP; DOCX core, extended and custom
   properties (author, last editor, company, keywords, anything custom).
 - **`link`** - DOCX external relationship targets and `HYPERLINK` field codes;
