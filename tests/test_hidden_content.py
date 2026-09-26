@@ -9,16 +9,21 @@ sees it. All values are synthetic (example.com, the AWS example key, the reserve
 from __future__ import annotations
 
 import io
+import re
 import sys
 import zipfile
 from pathlib import Path
+from typing import Any
+
+import pytest
 
 from conftest import FIXTURES
+from docredact import extractors
 from docredact.core import build_document, build_sanitized
 from docredact.extractors import extract_blocks
 
 sys.path.insert(0, str(FIXTURES))
-from make_fixtures import build_docx  # noqa: E402
+from make_fixtures import build_docx, build_pdf  # noqa: E402
 
 _KEY = "AKIAIOSFODNN7EXAMPLE"
 _TOKEN = "ghp_0123456789abcdefghijklmnopqrstuvwxyz"
@@ -295,3 +300,84 @@ class TestAltText:
             ("phone", "+1-555-0177"),
         }
         assert _artifact(data, "a.docx", tmp_path) == "Quarterly report\n"
+
+
+def _incremental_update(base: bytes, number: int, body: bytes, size: int) -> bytes:
+    """Append an incremental update replacing object ``number``, as an editor saves one."""
+    prev = int(re.findall(rb"startxref\s+(\d+)", base)[-1])
+    out = bytearray(base)
+    offset = len(out)
+    out += b"%d 0 obj\n%s\nendobj\n" % (number, body)
+    xref = len(out)
+    out += b"xref\n0 1\n0000000000 65535 f \n%d 1\n%010d 00000 n \n" % (number, offset)
+    out += b"trailer\n<< /Size %d /Root 1 0 R /Prev %d >>\nstartxref\n%d\n%%%%EOF\n" % (
+        size, prev, xref,
+    )
+    return bytes(out)
+
+
+def _redacted_by_update() -> bytes:
+    # Page 1's content stream is object 4 in build_pdf's layout.
+    base = build_pdf((("Account owner jane.doe@example.com key " + _KEY,), ("page two",)))
+    return _incremental_update(
+        base, 4, _stream(b"BT /F1 12 Tf 72 720 Td (Account owner [redacted]) Tj ET"), 8
+    )
+
+
+class TestEarlierRevisions:
+    def test_text_removed_by_an_incremental_update_is_scanned(self, tmp_path: Path) -> None:
+        # "Redacting" by saving over a page leaves the original page in the
+        # file: any viewer that offers earlier versions, or a text editor,
+        # shows it. It scanned as zero findings with exit 0.
+        data = _redacted_by_update()
+        assert _KEY.encode() in data
+        blocks, warnings = extract_blocks(data, "pdf")
+        assert warnings == []
+        assert [(b.kind, b.text) for b in blocks] == [
+            ("page", "Account owner [redacted]"),
+            ("page", "page two"),
+            ("revision", f"Account owner jane.doe@example.com key {_KEY}"),
+        ]
+        assert _entities(data, "r.pdf", tmp_path) == {
+            ("email", "jane.doe@example.com"),
+            ("api_key", _KEY),
+        }
+        assert _artifact(data, "r.pdf", tmp_path) == "Account owner [redacted]\n\npage two\n"
+
+    def test_a_single_revision_pdf_has_no_revision_blocks(self) -> None:
+        blocks, _ = extract_blocks((FIXTURES / "sample.pdf").read_bytes(), "pdf")
+        assert {b.kind for b in blocks} == {"page"}
+
+    def test_an_unreadable_earlier_revision_fails_closed(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # pypdf recovers from most damage, but when an earlier revision cannot
+        # be opened at all the gate must not assume it held nothing.
+        data = _redacted_by_update()
+        real = extractors._extract_pdf_revision
+
+        def fail_on_prefix(chunk: bytes, used: list[int]) -> Any:
+            if len(chunk) < len(data):
+                raise extractors.ExtractionError("failed to parse PDF: damaged")
+            return real(chunk, used)
+
+        monkeypatch.setattr(extractors, "_extract_pdf_revision", fail_on_prefix)
+        blocks, warnings = extract_blocks(data, "pdf")
+        assert [b.kind for b in blocks] == ["page", "page"]
+        assert warnings == [
+            "not scanned: earlier revision 1 could not be read (failed to parse PDF: damaged)"
+        ]
+
+    def test_revision_count_is_capped(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(extractors, "_PDF_MAX_REVISIONS", 0)
+        with pytest.raises(extractors.ExtractionError, match="too many revisions"):
+            extract_blocks(_redacted_by_update(), "pdf")
+
+    def test_linearization_stub_is_not_a_revision(self) -> None:
+        # A linearized ("fast web view") file ends its first-page section with
+        # "startxref 0 %%EOF"; that stub is not an earlier version.
+        base = build_pdf((("single page",),))
+        stub = b"%PDF-1.4\n% linearized stub\ntrailer\n<< /Size 1 >>\nstartxref\n0\n%%EOF\n"
+        blocks, warnings = extract_blocks(stub + base[len(b"%PDF-1.4\n"):], "pdf")
+        assert warnings == []
+        assert [b.kind for b in blocks] == ["page"]

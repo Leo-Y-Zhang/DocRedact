@@ -385,11 +385,65 @@ def _pdf_field_texts(reader: PdfReader) -> Iterator[str]:
             yield f"{name}: {text}"
 
 
-def _extract_pdf(data: bytes) -> tuple[list[Block], list[str]]:
-    """Extract one block per page, then annotation text, then filled form fields.
+# An incremental update appends to the file and leaves everything before it in
+# place, so each earlier revision is still a complete PDF: the bytes up to its
+# own "startxref <offset> %%EOF". A linearized file's first-page section ends in
+# "startxref 0 %%EOF", which is a stub rather than a revision.
+_PDF_REVISION_END_RE = re.compile(rb"startxref\s+(\d+)\s*%%EOF")
+_PDF_MAX_REVISIONS = 100
 
-    Page blocks keep index == page number; ``annotation`` blocks (page order)
-    and ``field`` blocks follow, so no page block index moves.
+
+def _pdf_earlier_revision_ends(data: bytes) -> list[int]:
+    """Byte offsets where each earlier (not the final) revision of ``data`` ends."""
+    ends = [m.end() for m in _PDF_REVISION_END_RE.finditer(data) if int(m.group(1)) > 0]
+    tail = len(data.rstrip())
+    return [end for end in ends if end < tail]
+
+
+def _extract_pdf(data: bytes) -> tuple[list[Block], list[str]]:
+    """Extract the final revision, then any text only an earlier revision holds.
+
+    Saving over a page ("redacting" it in an editor that saves incrementally)
+    leaves the original page in the file. Each earlier revision is extracted
+    in turn, and every block text it has that the final revision lacks becomes
+    a ``revision`` block, appended last, so no existing block index moves. An
+    earlier revision that cannot be opened is reported as not scanned.
+    """
+    used = [0]  # extracted characters across all revisions, for the aggregate cap
+    blocks, warnings = _extract_pdf_revision(data, used)
+    ends = _pdf_earlier_revision_ends(data)
+    if len(ends) > _PDF_MAX_REVISIONS:
+        raise ExtractionError(
+            f"failed to parse PDF: too many revisions ({len(ends)} > {_PDF_MAX_REVISIONS})"
+        )
+    seen = {b.text for b in blocks}
+    known = set(warnings)
+    for number, end in enumerate(ends, start=1):
+        try:
+            old_blocks, old_warnings = _extract_pdf_revision(data[:end], used)
+        except ExtractionError as exc:
+            if "aggregate cap" in str(exc):
+                raise
+            warnings.append(f"{NOT_SCANNED}earlier revision {number} could not be read ({exc})")
+            continue
+        for block in old_blocks:
+            if block.text and block.text not in seen:
+                seen.add(block.text)
+                blocks.append(Block(len(blocks), "revision", block.text))
+        for warning in old_warnings:
+            if is_gap(warning) and warning not in known:
+                known.add(warning)
+                rest = warning[len(NOT_SCANNED):]
+                warnings.append(f"{NOT_SCANNED}earlier revision {number}: {rest}")
+    return blocks, warnings
+
+
+def _extract_pdf_revision(data: bytes, used: list[int]) -> tuple[list[Block], list[str]]:
+    """Extract one block per page, then annotation, link, form-field and metadata text.
+
+    Page blocks keep index == page number; ``annotation``/``link`` blocks (page
+    order), ``field`` and ``metadata`` blocks follow, so no page block index
+    moves. ``used`` carries the aggregate character count across revisions.
     """
     try:
         reader = PdfReader(io.BytesIO(data))
@@ -408,12 +462,10 @@ def _extract_pdf(data: bytes) -> tuple[list[Block], list[str]]:
         )
     blocks: list[Block] = []
     warnings: list[str] = []
-    total_chars = 0
 
     def charge(text: str) -> str:
-        nonlocal total_chars
-        total_chars += len(text)
-        if total_chars > _PDF_MAX_TEXT_CHARS:
+        used[0] += len(text)
+        if used[0] > _PDF_MAX_TEXT_CHARS:
             raise ExtractionError(
                 "failed to parse PDF: extracted text exceeds the "
                 f"{_PDF_MAX_TEXT_CHARS}-character aggregate cap "
