@@ -59,7 +59,7 @@ def _same_path(a: Path, b: Path) -> bool:
         if a.exists() and b.exists():
             return os.path.samefile(a, b)
         return os.path.normcase(a.resolve()) == os.path.normcase(b.resolve())
-    except OSError:
+    except (OSError, RuntimeError):  # RuntimeError: a symlink loop, before Python 3.13
         return False
 
 

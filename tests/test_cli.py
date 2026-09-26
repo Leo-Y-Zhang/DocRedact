@@ -225,6 +225,21 @@ def test_extract_refuses_to_write_over_its_input_through_a_symlink(tmp_path: Pat
     assert victim.read_text(encoding="utf-8") == "original: jane.doe@example.com\n"
 
 
+
+def test_extract_output_through_a_symlink_loop_is_an_error_not_a_crash(tmp_path: Path) -> None:
+    # Resolving a looping link raised RuntimeError out of the overwrite check
+    # (Python < 3.13): a traceback instead of a clean exit-1 error.
+    loop = tmp_path / "loop"
+    try:
+        loop.symlink_to(tmp_path / "back")
+        (tmp_path / "back").symlink_to(loop)
+    except OSError:
+        pytest.skip("symlinks unavailable")
+    proc = run_cli("extract", str(_victim(tmp_path)), "--out", str(loop))
+    assert proc.returncode == 1
+    assert proc.stderr.startswith("docredact: error:"), proc.stderr
+    assert "Traceback" not in proc.stderr
+
 def test_extract_refuses_two_outputs_on_one_path(tmp_path: Path) -> None:
     # --write-redacted X --out X wrote the safe artifact, then replaced it with
     # the JSON report - raw values included - in the file the user was about
