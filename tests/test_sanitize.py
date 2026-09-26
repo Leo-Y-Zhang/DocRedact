@@ -211,3 +211,50 @@ class TestCliWriteRedacted:
         assert out.read_text(encoding="utf-8") == (
             "name, email\njane, [EMAIL_1]\njohn, [EMAIL_2]\n"
         )
+
+
+class TestHiddenContentStaysOutOfTheArtifact:
+    """Text a reader of the document does not see - tracked deletions, comments - is
+    scanned and reported, but never rendered into the artifact that gets shared.
+    Resurrecting what the author deleted into the "safe to send" copy would leak
+    exactly what the detectors cannot recognise (names, salaries, free text)."""
+
+    def _docx(self, tmp_path: Path) -> Path:
+        import io
+        import zipfile
+
+        w = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"'
+        body = (
+            f"<w:document {w}><w:body><w:p><w:r><w:t>Salary review for </w:t></w:r>"
+            "<w:del w:id='1' w:author='R'><w:r><w:delText>Pat Example, base 85000, "
+            "card 4111111111111111</w:delText></w:r></w:del>"
+            "<w:r><w:t>[name removed]</w:t></w:r></w:p></w:body></w:document>"
+        )
+        comments = (
+            f"<w:comments {w}><w:comment w:id='0' w:author='R'><w:p><w:r>"
+            "<w:t>Check with Pat Example, reviewer.one@example.com</w:t>"
+            "</w:r></w:p></w:comment></w:comments>"
+        )
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as archive:
+            archive.writestr("word/document.xml", body)
+            archive.writestr("word/comments.xml", comments)
+        path = tmp_path / "tracked.docx"
+        path.write_bytes(buffer.getvalue())
+        return path
+
+    def test_deletions_and_comments_are_not_rendered(self, tmp_path: Path) -> None:
+        artifact, manifest = build_sanitized(self._docx(tmp_path))
+        assert artifact == "Salary review for [name removed]\n"
+        assert "Pat Example" not in artifact
+        assert manifest == []  # the manifest describes the artifact, nothing else
+
+    def test_they_are_still_scanned_and_reported(self, tmp_path: Path) -> None:
+        from docredact.core import build_document
+
+        doc = build_document(self._docx(tmp_path))
+        found = {(e["type"], e["value"]) for e in doc["entities"]}  # type: ignore[union-attr]
+        assert found == {
+            ("credit_card", "4111111111111111"),
+            ("email", "reviewer.one@example.com"),
+        }

@@ -13,7 +13,7 @@ from .extractors import Block, detect_format, extract_blocks
 from .metadata import metadata_for
 from .policy import Policy
 from .redact import mask_text
-from .sanitize import render_artifact, sanitize_blocks
+from .sanitize import render_artifact, rendered_blocks, sanitize_blocks
 
 REDACT_MODES = ("report", "mask", "strict")
 
@@ -27,10 +27,13 @@ def build_sanitized(
 
     Every finding at/above ``min_confidence`` is replaced by a consistent
     ``[TYPE_N]`` token (same value -> same token document-wide); the manifest
-    lists tokens with types and occurrence counts and never a raw value.
+    lists tokens with types and occurrence counts and never a raw value. Hidden
+    kinds (tracked deletions, comments, annotations) are left out of both: they
+    are scanned and reported by ``build_document``, never rendered.
     """
     fmt = detect_format(path)
     blocks, _ = extract_blocks(path.read_bytes(), fmt)
+    blocks = rendered_blocks(blocks)
     min_rank = min_confidence.rank
     per_block = {
         b.index: [e for e in scan_text(b.text, policy) if e.confidence.rank >= min_rank]
