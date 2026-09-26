@@ -19,7 +19,7 @@ from urllib.parse import unquote
 from xml.etree import ElementTree
 
 from pypdf import PageObject, PdfReader
-from pypdf.generic import DictionaryObject, NameObject, PdfObject
+from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject, PdfObject
 
 # pypdf reports non-fatal parser conditions (bad header, missing EOF marker,
 # non-compliant structure it is recovering from, ...) through the stdlib
@@ -303,31 +303,126 @@ def _pdf_page_has_content(page: PageObject) -> bool:
     return contents is not None and bool(contents.get_data().strip())
 
 
+def _pdf_resources(page: PageObject) -> Iterator[DictionaryObject]:
+    """Every resource dictionary text on ``page`` can be drawn with.
+
+    The page's own, then - transitively - those of the form XObjects it (or a
+    form it draws) uses and of its annotations' appearance streams: a
+    template, a stamp or a FreeText box brings its own fonts. Each dictionary
+    is visited once, so a form that draws itself cannot loop.
+    """
+    pending: list[object] = [page.get("/Resources")]
+    for annotation in _pdf_annotations(page):
+        pending.extend(form.get("/Resources") for form in _pdf_appearances(annotation))
+    seen: set[int] = set()
+    keep: list[object] = []  # holds visited objects so their ids stay unique
+    while pending:
+        resources = pending.pop()
+        resources = resources.get_object() if isinstance(resources, PdfObject) else resources
+        if not isinstance(resources, DictionaryObject) or id(resources) in seen:
+            continue
+        seen.add(id(resources))
+        keep.append(resources)
+        yield resources
+        xobjects = resources.get("/XObject")
+        xobjects = xobjects.get_object() if xobjects is not None else None
+        if isinstance(xobjects, DictionaryObject):
+            for reference in xobjects.values():
+                form = reference.get_object() if isinstance(reference, PdfObject) else None
+                if isinstance(form, DictionaryObject) and form.get("/Subtype") == "/Form":
+                    pending.append(form.get("/Resources"))
+
+
 def _pdf_unmapped_fonts(page: PageObject) -> list[str]:
-    """Names of the page's fonts whose text cannot be mapped to Unicode.
+    """Names of the fonts on ``page`` whose text cannot be mapped to Unicode.
 
     A composite font with the Identity encoding stores glyph ids, not
     characters; without a /ToUnicode map nothing says which glyph is which
     letter, and pypdf silently emits the raw ids - garbage no detector can
     match. Subset fonts in PDFs produced by many tools look exactly like this.
+    Fonts used only inside a form XObject or an annotation's appearance count
+    too.
     """
-    resources = page.get("/Resources")
-    resources = resources.get_object() if resources is not None else None
-    fonts = resources.get("/Font") if isinstance(resources, DictionaryObject) else None
-    fonts = fonts.get_object() if fonts is not None else None
-    if not isinstance(fonts, DictionaryObject):
-        return []
-    unmapped = []
-    for name, reference in fonts.items():
-        font = reference.get_object() if isinstance(reference, PdfObject) else None
-        if (
-            isinstance(font, DictionaryObject)
-            and font.get("/Subtype") == "/Type0"
-            and font.get("/Encoding") in ("/Identity-H", "/Identity-V")
-            and "/ToUnicode" not in font
-        ):
-            unmapped.append(str(name).lstrip("/"))
+    unmapped: set[str] = set()
+    for resources in _pdf_resources(page):
+        fonts = resources.get("/Font")
+        fonts = fonts.get_object() if fonts is not None else None
+        if not isinstance(fonts, DictionaryObject):
+            continue
+        for name, reference in fonts.items():
+            font = reference.get_object() if isinstance(reference, PdfObject) else None
+            if not isinstance(font, DictionaryObject):
+                continue
+            encoding = font.get("/Encoding")
+            encoding = encoding.get_object() if encoding is not None else None
+            if (
+                font.get("/Subtype") == "/Type0"
+                and encoding in ("/Identity-H", "/Identity-V")
+                and "/ToUnicode" not in font
+            ):
+                unmapped.add(str(name).lstrip("/"))
     return sorted(unmapped)
+
+
+def _pdf_annotations(page: PageObject) -> Iterator[DictionaryObject]:
+    """The page's annotation dictionaries."""
+    annotations = page.get("/Annots")
+    annotations = annotations.get_object() if annotations is not None else None
+    if not isinstance(annotations, list):
+        return
+    for reference in annotations:
+        annotation = reference.get_object() if isinstance(reference, PdfObject) else None
+        if isinstance(annotation, DictionaryObject):
+            yield annotation
+
+
+def _pdf_appearances(annotation: DictionaryObject) -> list[DictionaryObject]:
+    """The annotation's normal appearance stream(s): one, or one per state."""
+    appearance = annotation.get("/AP")
+    appearance = appearance.get_object() if appearance is not None else None
+    normal = appearance.get("/N") if isinstance(appearance, DictionaryObject) else None
+    normal = normal.get_object() if normal is not None else None
+    if not isinstance(normal, DictionaryObject):
+        return []
+    if hasattr(normal, "get_data"):
+        return [normal]
+    states = (s.get_object() if isinstance(s, PdfObject) else s for s in normal.values())
+    return [s for s in states if isinstance(s, DictionaryObject) and hasattr(s, "get_data")]
+
+
+def _pdf_form_text(form: DictionaryObject) -> str:
+    """The text a form XObject (an appearance stream) draws, as pypdf extracts it.
+
+    pypdf reads text only from page content, so the form is drawn on an
+    otherwise empty scratch page and that page is extracted.
+    """
+    scratch = PageObject.create_blank_page(width=1, height=1)
+    content = DecodedStreamObject()
+    content.set_data(b"/DocRedactAppearance Do")
+    scratch[NameObject("/Contents")] = content
+    scratch[NameObject("/Resources")] = DictionaryObject(
+        {
+            NameObject("/XObject"): DictionaryObject(
+                {NameObject("/DocRedactAppearance"): form.indirect_reference or form}
+            )
+        }
+    )
+    return (scratch.extract_text() or "").strip()
+
+
+def _pdf_field_value(widget: DictionaryObject) -> tuple[str, str]:
+    """(field type, value text) of a widget's field, inherited through /Parent."""
+    node: object = widget
+    field_type, value, depth = "", "", 0
+    while isinstance(node, DictionaryObject) and depth < 32:
+        if not field_type and "/FT" in node:
+            field_type = str(node.get("/FT"))
+        if not value and "/V" in node:
+            value = _pdf_text(node.get("/V")) or str(node.get("/V"))
+        parent = node.get("/Parent")
+        node = parent.get_object() if parent is not None else None
+        depth += 1
+    return field_type, value
 
 
 def _pdf_annotation_texts(
@@ -340,26 +435,35 @@ def _pdf_annotation_texts(
     ``extract_text`` reads, so it was never scanned: those become
     ``annotation`` text. A Link's target URI - the address or the tokenised
     URL behind "click here" - is percent-decoded and becomes ``link`` text.
-    Form widgets are skipped (their values come from the AcroForm walk), and so
-    are Popups, which only display their parent's text. A file attached as an
-    annotation is not opened; it is reported, as an EML attachment is.
+    What an annotation draws is ``annotation`` text too, unless it repeats
+    ``/Contents``: a stamp, or a FreeText box saved with only its appearance,
+    shows text that is in no content stream at all. Widgets of a field with a
+    value are skipped (the value comes from the AcroForm walk), and so are
+    buttons and Popups, which only display their parent's text. A file
+    attached as an annotation is not opened; it is reported, as an EML
+    attachment is.
     """
-    annotations = page.get("/Annots")
-    annotations = annotations.get_object() if annotations is not None else None
-    if not isinstance(annotations, list):
-        return
-    for reference in annotations:
-        annotation = reference.get_object() if isinstance(reference, PdfObject) else None
-        if not isinstance(annotation, DictionaryObject):
-            continue
+    for annotation in _pdf_annotations(page):
         subtype = annotation.get("/Subtype")
-        if subtype in ("/Widget", "/Popup"):
+        if subtype == "/Popup":
             continue
+        if subtype == "/Widget":
+            field_type, value = _pdf_field_value(annotation)
+            if value or field_type == "/Btn":
+                continue  # the value is a field block; a button's is a state
         if subtype == "/FileAttachment":
             warnings.append(f"{NOT_SCANNED}embedded file {_pdf_file_name(annotation)}")
         text = _pdf_text(annotation.get("/Contents"))
         if text:
             yield "annotation", text
+        for form in _pdf_appearances(annotation):
+            try:
+                drawn = _pdf_form_text(form)
+            except Exception as exc:
+                warnings.append(f"{NOT_SCANNED}an annotation's appearance could not be read ({exc})")
+                continue
+            if drawn and drawn.split() != text.split():
+                yield "annotation", drawn
         if subtype == "/Link":
             action = annotation.get("/A")
             action = action.get_object() if action is not None else None

@@ -429,3 +429,57 @@ def test_text_a_pdf_viewer_hides_is_still_scanned(layer: str) -> None:
     blocks, warnings = extract_blocks(_LAYERS[layer], "pdf")
     assert warnings == []
     assert [b.text for b in blocks] == [f"hidden {_KEY}"]
+
+
+def _annotated_pdf(annotation: bytes, content: bytes = b"") -> bytes:
+    # One page whose annotation (object 6) draws the key through its
+    # appearance stream (object 7) and nowhere else.
+    appearance = _stream(
+        b"BT /F1 12 Tf 2 2 Td (key " + _KEY.encode() + b") Tj ET",
+        b"/Type /XObject /Subtype /Form /BBox [0 0 300 50] /Resources << /Font << /F1 5 0 R >> >> ",
+    )
+    return _pdf_objects(
+        [
+            b"<< /Type /Catalog /Pages 2 0 R >>",
+            b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+            b"/Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R /Annots [6 0 R] >>",
+            _stream(content),
+            b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+            b"<< /Type /Annot /Rect [72 600 372 650] /AP << /N 7 0 R >> " + annotation + b">>",
+            appearance,
+        ],
+        b"/Root 1 0 R",
+    )
+
+
+_DRAWN = {
+    # A stamp on an otherwise empty page: no content stream, so not even the
+    # image-only warning fired, and strict passed a page that shows the key.
+    "stamp": (b"/Subtype /Stamp ", b""),
+    "freetext without contents": (
+        b"/Subtype /FreeText /DA (/F1 12 Tf) ", b"BT /F1 12 Tf 72 720 Td (Cover) Tj ET"
+    ),
+    "widget outside any form": (
+        b"/Subtype /Widget /FT /Tx /T (f1) ", b"BT /F1 12 Tf 72 720 Td (Cover) Tj ET"
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(_DRAWN))
+def test_text_an_annotation_only_draws_is_scanned(tmp_path: Path, case: str) -> None:
+    annotation, content = _DRAWN[case]
+    data = _annotated_pdf(annotation, content)
+    blocks, warnings = extract_blocks(data, "pdf")
+    assert warnings == []
+    assert [(b.kind, b.text) for b in blocks if b.kind != "page"] == [
+        ("annotation", f"key {_KEY}")
+    ]
+    assert ("api_key", _KEY) in _entities(data, "a.pdf", tmp_path)
+    assert _KEY not in _artifact(data, "a.pdf", tmp_path)
+
+
+def test_annotation_appearance_repeating_its_contents_is_not_duplicated() -> None:
+    data = _annotated_pdf(b"/Subtype /FreeText /Contents (key  " + _KEY.encode() + b") ")
+    blocks, _ = extract_blocks(data, "pdf")
+    assert [b.text for b in blocks if b.kind == "annotation"] == [f"key  {_KEY}"]

@@ -109,6 +109,29 @@ def _replacement_char_pdf() -> bytes:
     return _raw_pdf(f"BT /F1 12 Tf 72 700 Td ({_KEY}) Tj ET".encode(), font=font)
 
 
+
+def _unmapped_font_in_form_pdf(encoding: bytes = b"/Identity-H") -> bytes:
+    # The same unmapped font, but used only inside a form XObject the page
+    # draws (a template or a stamped letterhead), so it is not in the page's
+    # own /Resources /Font. ``encoding`` may be an indirect reference.
+    descendant = (
+        b"<< /Type /Font /Subtype /CIDFontType2 /BaseFont /ABCDEF+Custom "
+        b"/CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> >>"
+    )
+    font = (
+        b"<< /Type /Font /Subtype /Type0 /BaseFont /ABCDEF+Custom "
+        b"/Encoding " + encoding + b" /DescendantFonts [6 0 R] >>"
+    )
+    shown = b"BT /F2 12 Tf 72 700 Td <0024002600270028> Tj ET"
+    form = (
+        b"<< /Type /XObject /Subtype /Form /BBox [0 0 612 792] "
+        b"/Resources << /Font << /F2 7 0 R >> >> /Length %d >>\nstream\n%s\nendstream"
+        % (len(shown), shown)
+    )
+    return _raw_pdf(b"BT /F1 12 Tf 72 720 Td (Letterhead) Tj ET /Fm1 Do",
+                    resources=b"/XObject << /Fm1 8 0 R >> ",
+                    extra=(descendant, font, form, b"/Identity-H"))
+
 def _pdf_with_attachment() -> bytes:
     writer = PdfWriter(clone_from=PdfReader(io.BytesIO(build_pdf((("cover page",),)))))
     writer.add_attachment("keys.txt", _KEY.encode())
@@ -149,6 +172,12 @@ _GAPS: dict[str, tuple[str, bytes, str]] = {
     "image-only page": ("s.pdf", _image_only_pdf(), "page 0 has no extractable text"),
     "unreadable page": ("b.pdf", _broken_page_pdf(), "page 0: text extraction failed"),
     "unmapped font": ("f.pdf", _unmapped_font_pdf(), "page 0: text in font F1 cannot be mapped"),
+    "unmapped font in a form xobject": (
+        "x.pdf", _unmapped_font_in_form_pdf(), "page 0: text in font F2 cannot be mapped"
+    ),
+    "unmapped font, indirect encoding": (
+        "i.pdf", _unmapped_font_in_form_pdf(b"9 0 R"), "page 0: text in font F2 cannot be mapped"
+    ),
     "replacement characters": (
         "r.pdf", _replacement_char_pdf(), "page 0: some text could not be decoded"
     ),
