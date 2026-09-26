@@ -646,9 +646,9 @@ def test_pdf_annotation_text_pypdf_cannot_decode_is_still_scanned() -> None:
     ]
 
 
-def test_pdf_link_mailto_target_is_scanned() -> None:
-    # The PDF twin of the HTML mailto: rule: the address behind "Contact us"
-    # is percent-decoded and scanned; other link targets are not injected.
+def test_pdf_link_targets_become_link_blocks() -> None:
+    # The PDF twin of the HTML mailto: rule, widened to every URI: the address
+    # or tokenised URL behind "Contact us" is percent-decoded and scanned.
     data = _pdf_with(
         (
             (0, Link(rect=(72, 500, 272, 520), url="mailto:hidden%40example.com?cc=cc@example.com")),
@@ -656,8 +656,11 @@ def test_pdf_link_mailto_target_is_scanned() -> None:
         )
     )
     blocks, _ = extract_blocks(data, "pdf")
-    annotations = [b.text for b in blocks if b.kind == "annotation"]
-    assert annotations == ["hidden@example.com?cc=cc@example.com"]
+    assert [b.text for b in blocks if b.kind == "annotation"] == []
+    assert [b.text for b in blocks if b.kind == "link"] == [
+        "mailto:hidden@example.com?cc=cc@example.com",
+        "https://example.com/help",
+    ]
 
 
 def test_pdf_filled_form_field_values_are_scanned(tmp_path: Path) -> None:

@@ -28,7 +28,7 @@ from .redact import select_replacements
 # the copy that gets shared. Rendering them would hand the recipient exactly what
 # the detectors cannot recognise (names, salaries, free text) from the part of the
 # file the author meant to remove.
-HIDDEN_KINDS = frozenset({"deletion", "comment", "annotation", "metadata"})
+HIDDEN_KINDS = frozenset({"deletion", "comment", "annotation", "metadata", "link"})
 
 
 def rendered_blocks(blocks: list[Block]) -> list[Block]:

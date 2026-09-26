@@ -330,13 +330,16 @@ def _pdf_unmapped_fonts(page: PageObject) -> list[str]:
     return sorted(unmapped)
 
 
-def _pdf_annotation_texts(page: PageObject, warnings: list[str]) -> Iterator[str]:
-    """Scannable text carried by one page's annotations, one string per annotation.
+def _pdf_annotation_texts(
+    page: PageObject, warnings: list[str]
+) -> Iterator[tuple[str, str]]:
+    """(kind, text) for the scannable text of one page's annotations.
 
     Sticky notes, FreeText boxes, commented highlights and the like keep their
     text in ``/Contents``, outside the page content stream that
-    ``extract_text`` reads, so it was never scanned. A Link's ``mailto:``
-    target is percent-decoded and scanned, as an HTML ``mailto:`` href is.
+    ``extract_text`` reads, so it was never scanned: those become
+    ``annotation`` text. A Link's target URI - the address or the tokenised
+    URL behind "click here" - is percent-decoded and becomes ``link`` text.
     Form widgets are skipped (their values come from the AcroForm walk), and so
     are Popups, which only display their parent's text. A file attached as an
     annotation is not opened; it is reported, as an EML attachment is.
@@ -354,16 +357,15 @@ def _pdf_annotation_texts(page: PageObject, warnings: list[str]) -> Iterator[str
             continue
         if subtype == "/FileAttachment":
             warnings.append(f"{NOT_SCANNED}embedded file {_pdf_file_name(annotation)}")
-        parts = [_pdf_text(annotation.get("/Contents"))]
+        text = _pdf_text(annotation.get("/Contents"))
+        if text:
+            yield "annotation", text
         if subtype == "/Link":
             action = annotation.get("/A")
             action = action.get_object() if action is not None else None
             uri = _pdf_text(action.get("/URI")) if isinstance(action, DictionaryObject) else ""
-            if uri[:7].lower() == "mailto:":
-                parts.append(unquote(uri[7:]))
-        text = " ".join(part for part in parts if part)
-        if text:
-            yield text
+            if uri:
+                yield "link", unquote(uri)
 
 
 def _pdf_field_texts(reader: PdfReader) -> Iterator[str]:
@@ -457,8 +459,8 @@ def _extract_pdf(data: bytes) -> tuple[list[Block], list[str]]:
                 )
         blocks.append(Block(i, "page", text))
         try:
-            for note in _pdf_annotation_texts(page, warnings):
-                extra.append(("annotation", charge(note)))
+            for kind, note in _pdf_annotation_texts(page, warnings):
+                extra.append((kind, charge(note)))
         except ExtractionError:
             raise
         except Exception as exc:
@@ -686,6 +688,34 @@ def _docx_unscanned_parts(
 _DOCX_PROPERTY_PARTS = ("docProps/core.xml", "docProps/app.xml", "docProps/custom.xml")
 
 
+_HYPERLINK_FIELD_RE = re.compile(r'HYPERLINK\s+"([^"]+)"')
+
+
+def _docx_link_targets(
+    rels: list[tuple[str, ElementTree.Element]], parts: list[ElementTree.Element]
+) -> list[str]:
+    """Every external target the package points at, percent-decoded.
+
+    A hyperlink's address is not in the text that shows ("our portal"): it is
+    a TargetMode="External" relationship, and so is a template or image
+    linked from a path on the author's machine. Word also writes hyperlinks
+    as HYPERLINK field codes, whose target lives in w:instrText (or a
+    w:fldSimple's w:instr) rather than any w:t.
+    """
+    targets = [
+        unquote(rel.get("Target", ""))
+        for _, root in rels
+        for rel in root.iter(f"{_RELS_NS}Relationship")
+        if rel.get("TargetMode") == "External" and rel.get("Target", "").strip()
+    ]
+    for root in parts:
+        for paragraph in root.iter(f"{_W}p"):
+            codes = [n.text or "" for n in paragraph.iter(f"{_W}instrText")]
+            codes += [n.get(f"{_W}instr", "") for n in paragraph.iter(f"{_W}fldSimple")]
+            targets.extend(unquote(t) for t in _HYPERLINK_FIELD_RE.findall("".join(codes)))
+    return targets
+
+
 def _localname(tag: str) -> str:
     return tag.rsplit("}", 1)[-1]
 
@@ -847,6 +877,8 @@ def _extract_docx(data: bytes) -> tuple[list[Block], list[str]]:
     for name, part_root in properties:
         for line in _docx_property_lines(name, part_root):
             blocks.append(Block(len(blocks), "metadata", line))
+    for target in _docx_link_targets(rels, [root, *(part for _, part in extras)]):
+        blocks.append(Block(len(blocks), "link", target))
     warnings = [] if blocks else ["no text blocks extracted"]
     warnings.extend(f"{NOT_SCANNED}{what}" for what in unscanned)
     return blocks, warnings

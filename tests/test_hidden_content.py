@@ -181,3 +181,85 @@ class TestMetadata:
             assert "docProps/core.xml" in str(exc)
         else:
             raise AssertionError("a DTD in docProps/core.xml must be refused")
+
+
+_HYPERLINK = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink"
+
+
+class TestLinks:
+    def test_docx_external_relationship_targets_are_scanned(self, tmp_path: Path) -> None:
+        # The address behind "our portal" lives only in the relationship part;
+        # so does a template or image linked from someone's home directory.
+        body = (
+            '<w:p><w:hyperlink r:id="rIdLink"><w:r><w:t>our portal</w:t></w:r>'
+            "</w:hyperlink></w:p>"
+        )
+        rels = (
+            f'<Relationship Id="rIdLink" Type="{_HYPERLINK}" '
+            'Target="mailto:link.target%40example.com" TargetMode="External"/>'
+            f'<Relationship Id="rIdApi" Type="{_HYPERLINK}" '
+            f'Target="https://api.example.com/export?token={_TOKEN}" TargetMode="External"/>'
+            '<Relationship Id="rIdStyles" Type="http://schemas.openxmlformats.org/'
+            'officeDocument/2006/relationships/styles" Target="styles.xml"/>'
+        )
+        data = _docx({}, body=body, rels=rels)
+        blocks, warnings = extract_blocks(data, "docx")
+        assert warnings == []
+        assert [b.text for b in blocks if b.kind == "link"] == [
+            "mailto:link.target@example.com",
+            f"https://api.example.com/export?token={_TOKEN}",
+        ]
+        assert _entities(data, "l.docx", tmp_path) == {
+            ("email", "link.target@example.com"),
+            ("api_key", _TOKEN),
+            ("high_entropy", f"token={_TOKEN}"),
+        }
+        assert "example.com" not in _artifact(data, "l.docx", tmp_path)
+
+    def test_docx_hyperlink_field_code_is_scanned(self) -> None:
+        body = (
+            '<w:p><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText '
+            'xml:space="preserve"> HYPERLINK "mailto:field.code@example.com" \\o "tip" '
+            '</w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r>'
+            '<w:r><w:t>email us</w:t></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r></w:p>'
+        )
+        blocks, _ = extract_blocks(_docx({}, body=body), "docx")
+        assert [b.text for b in blocks if b.kind == "link"] == ["mailto:field.code@example.com"]
+        assert "email us" in [b.text for b in blocks if b.kind == "paragraph"]
+
+    def test_pdf_link_targets_are_scanned(self, tmp_path: Path) -> None:
+        link = (
+            b"<< /Type /Annot /Subtype /Link /Rect [72 690 300 710] /A << /S /URI "
+            b"/URI (https://api.example.com/export?token=" + _TOKEN.encode() + b") >> >>"
+        )
+        mail = (
+            b"<< /Type /Annot /Subtype /Link /Rect [72 650 300 670] /A << /S /URI "
+            b"/URI (mailto:hidden%40example.com?cc=cc@example.com) >> >>"
+        )
+        data = _pdf_objects(
+            [
+                b"<< /Type /Catalog /Pages 2 0 R >>",
+                b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+                b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources "
+                b"<< /Font << /F1 5 0 R >> >> /Contents 4 0 R /Annots [6 0 R 7 0 R] >>",
+                _stream(b"BT /F1 12 Tf 72 700 Td (Export here) Tj ET"),
+                b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+                link,
+                mail,
+            ],
+            b"/Root 1 0 R",
+        )
+        blocks, warnings = extract_blocks(data, "pdf")
+        assert warnings == []
+        assert [(b.kind, b.text) for b in blocks] == [
+            ("page", "Export here"),
+            ("link", f"https://api.example.com/export?token={_TOKEN}"),
+            ("link", "mailto:hidden@example.com?cc=cc@example.com"),
+        ]
+        assert _entities(data, "l.pdf", tmp_path) == {
+            ("api_key", _TOKEN),
+            ("high_entropy", f"token={_TOKEN}"),
+            ("email", "hidden@example.com"),
+            ("email", "cc@example.com"),
+        }
+        assert _artifact(data, "l.pdf", tmp_path) == "Export here\n"
