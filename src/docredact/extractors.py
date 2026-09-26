@@ -716,6 +716,35 @@ def _docx_link_targets(
     return targets
 
 
+_VML_NS = "{urn:schemas-microsoft-com:vml}"
+_OFFICE_TITLE = "{urn:schemas-microsoft-com:office:office}title"
+
+
+def _docx_alt_texts(parts: list[ElementTree.Element]) -> list[str]:
+    """Distinct image and shape descriptions (alt text), in document order.
+
+    Word stores them as attributes - ``descr``/``title`` on DrawingML
+    ``docPr``/``cNvPr``, ``alt``/``o:title`` on legacy VML shapes - never as
+    text runs, and fills them in itself ("A picture containing a person...")
+    when the author does not. Duplicates (Word repeats a description on the
+    picture's own ``cNvPr``) are reported once.
+    """
+    seen: dict[str, None] = {}
+    for root in parts:
+        for element in root.iter():
+            name = _localname(element.tag)
+            if name in ("docPr", "cNvPr"):
+                values = (element.get("descr"), element.get("title"))
+            elif element.tag.startswith(_VML_NS):
+                values = (element.get("alt"), element.get(_OFFICE_TITLE))
+            else:
+                continue
+            for value in values:
+                if value and value.strip():
+                    seen.setdefault(value.strip(), None)
+    return list(seen)
+
+
 def _localname(tag: str) -> str:
     return tag.rsplit("}", 1)[-1]
 
@@ -879,6 +908,8 @@ def _extract_docx(data: bytes) -> tuple[list[Block], list[str]]:
             blocks.append(Block(len(blocks), "metadata", line))
     for target in _docx_link_targets(rels, [root, *(part for _, part in extras)]):
         blocks.append(Block(len(blocks), "link", target))
+    for description in _docx_alt_texts([root, *(part for _, part in extras)]):
+        blocks.append(Block(len(blocks), "alt_text", description))
     warnings = [] if blocks else ["no text blocks extracted"]
     warnings.extend(f"{NOT_SCANNED}{what}" for what in unscanned)
     return blocks, warnings

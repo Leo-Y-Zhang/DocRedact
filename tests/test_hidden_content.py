@@ -263,3 +263,35 @@ class TestLinks:
             ("email", "cc@example.com"),
         }
         assert _artifact(data, "l.pdf", tmp_path) == "Export here\n"
+
+
+class TestAltText:
+    def test_docx_alt_text_is_scanned_not_rendered(self, tmp_path: Path) -> None:
+        wp = 'xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"'
+        pic = 'xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"'
+        vml = 'xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office"'
+        body = (
+            f"<w:p><w:r><w:drawing><wp:inline {wp}>"
+            '<wp:docPr id="1" name="Picture 1" descr="Scan of badge for alt.text@example.com" '
+            'title="Badge"/>'
+            f'<pic:pic {pic}><pic:nvPicPr><pic:cNvPr id="0" name="badge.png" '
+            'descr="Scan of badge for alt.text@example.com"/></pic:nvPicPr></pic:pic>'
+            "</wp:inline></w:drawing></w:r></w:p>"
+            f'<w:p><w:r><w:pict {vml}><v:shape alt="Legacy logo, call +1-555-0177">'
+            '<v:imagedata o:title="logo"/></v:shape></w:pict></w:r></w:p>'
+        )
+        data = _docx({}, body=body)
+        blocks, warnings = extract_blocks(data, "docx")
+        assert warnings == []
+        # One block per distinct description, in document order.
+        assert [b.text for b in blocks if b.kind == "alt_text"] == [
+            "Scan of badge for alt.text@example.com",
+            "Badge",
+            "Legacy logo, call +1-555-0177",
+            "logo",
+        ]
+        assert _entities(data, "a.docx", tmp_path) == {
+            ("email", "alt.text@example.com"),
+            ("phone", "+1-555-0177"),
+        }
+        assert _artifact(data, "a.docx", tmp_path) == "Quarterly report\n"
