@@ -381,3 +381,51 @@ class TestEarlierRevisions:
         blocks, warnings = extract_blocks(stub + base[len(b"%PDF-1.4\n"):], "pdf")
         assert warnings == []
         assert [b.kind for b in blocks] == ["page"]
+
+
+def _page_pdf(content: bytes, resources: bytes = b"", catalog: bytes = b"",
+              extra: tuple[bytes, ...] = ()) -> bytes:
+    return _pdf_objects(
+        [
+            b"<< /Type /Catalog /Pages 2 0 R " + catalog + b">>",
+            b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+            b"/Resources << /Font << /F1 5 0 R >> " + resources + b">> /Contents 4 0 R >>",
+            _stream(content),
+            b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+            *extra,
+        ],
+        b"/Root 1 0 R",
+    )
+
+
+_SHOW = b"BT /F1 12 Tf 72 700 Td (hidden " + _KEY.encode() + b") Tj ET"
+_FORM = _stream(_SHOW, b"/Type /XObject /Subtype /Form /BBox [0 0 612 792] "
+                b"/Resources << /Font << /F1 5 0 R >> >> ")
+_LAYERS = {
+    # The classic failed redaction: a black box drawn over text that is still there.
+    "under a black box": _page_pdf(_SHOW + b" 0 g 60 690 400 30 re f"),
+    "invisible render mode": _page_pdf(_SHOW.replace(b"Tf ", b"Tf 3 Tr ")),
+    "white on white": _page_pdf(b"1 1 1 rg " + _SHOW),
+    "clipped away": _page_pdf(b"q 0 0 1 1 re W n " + _SHOW + b" Q"),
+    "off the page": _page_pdf(_SHOW.replace(b"72 700 Td", b"-900 -900 Td")),
+    "hidden layer": _page_pdf(
+        b"/OC /oc1 BDC " + _SHOW + b" EMC",
+        resources=b"/Properties << /oc1 6 0 R >> ",
+        catalog=b"/OCProperties << /OCGs [6 0 R] /D << /OFF [6 0 R] >> >> ",
+        extra=(b"<< /Type /OCG /Name (Hidden) >>",),
+    ),
+    "form xobject": _page_pdf(b"/Fm1 Do", resources=b"/XObject << /Fm1 6 0 R >> ",
+                              extra=(_FORM,)),
+}
+
+
+@pytest.mark.parametrize("layer", sorted(_LAYERS))
+def test_text_a_pdf_viewer_hides_is_still_scanned(layer: str) -> None:
+    # Covering, hiding or clipping text does not remove it from the content
+    # stream. These pass today because pypdf extracts regardless of
+    # visibility; this pins that down, so a switch to a visibility-aware
+    # extraction mode cannot quietly start trusting a black box.
+    blocks, warnings = extract_blocks(_LAYERS[layer], "pdf")
+    assert warnings == []
+    assert [b.text for b in blocks] == [f"hidden {_KEY}"]
