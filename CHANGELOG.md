@@ -44,52 +44,87 @@ is attempted before the lossy one so that undecodable bytes produce a visible
 `input is not valid utf-8` warning instead of nothing. PDF, DOCX, and EML are
 unaffected: they never went through this path.
 
-### Fixed - DOCX text inside content controls, comments and tracked deletions was never scanned
+### Changed - strict mode fails closed on content that was not scanned
 
-Three kinds of DOCX text reached no detector and produced no warning, so
-`--redact strict` exited 0 on a document that plainly carried the value:
+`--redact strict` already exited 1 on a file that failed to parse, because a
+gate that did not read a file did not check it. Content skipped inside a file
+that *did* parse only produced a warning, so strict exited 0 on a PDF carrying
+an attached file with a key in it, a DOCX with an embedded workbook, a scanned
+(image-only) PDF page, a page pypdf could not parse, and an e-mail whose
+attachment held the secret. Two cases were silent: text in a subset font with
+no ToUnicode map (pypdf emits the glyph ids as garbage), and UTF-16 written
+without a byte-order mark (valid UTF-8 to the decoder, zero findings).
 
-- **Content controls.** Only direct `w:p`/`w:tbl` children of the body (and of
-  each header, footer and note) were read, so any paragraph, table row or
-  table cell wrapped in a content control (`w:sdt`) or custom-XML markup was
-  dropped - which covers Word's cover pages, tables of contents, the
-  page-number footer gallery and most form templates. That text is now read
-  in place. Body block indexes after such a control move, because the
-  skipped text now takes its place in the order; baselines are unaffected,
-  since fingerprints never contained a block index.
-- **Tracked deletions.** Deleted text is kept in the file as `w:delText` and
-  shown to anyone who turns on All Markup, but the extractor only read `w:t`.
-  It is now scanned as new `deletion` blocks, one per contiguous deletion,
-  appended after everything else.
-- **Comments.** `word/comments.xml` is now scanned as `comment` blocks after
-  the endnotes, under the same aggregate size budget and DTD refusal as every
-  other part.
+Every warning that means "present but not read" now starts with
+`not scanned: `, and strict mode treats any of them like a parse error: exit
+1, outranking a finding (3) and a fresh `--write-baseline` (0). `extract`
+prints each gap as a `docredact: error:` line; `scan` names each partially
+read file. Report and mask modes still write their output, warnings included,
+and exit as before. New gaps: DOCX embedded objects, macros and other binary
+parts (images and printer settings excepted) and altChunk-imported content;
+PDF embedded files (by name), fonts without a Unicode mapping, U+FFFD in
+extracted text, and an earlier revision that cannot be opened. The existing
+warnings were reworded to the prefix (`attachment skipped (not scanned): X`
+is now `not scanned: attachment (X)`). A blank PDF page no longer warns.
 
-Embedded objects (`word/embeddings/`) are still not opened, but each one now
-produces an `embedded object skipped (not scanned)` warning instead of
-nothing.
+### Fixed - an output could overwrite the input it was reading
 
-### Fixed - PDF annotations and filled-in form fields were never scanned
+`--write-redacted` or `--out` pointed at the input replaced the original
+document (with its sanitized rendering or the JSON report), exit 0.
+`--write-redacted X --out X` wrote the artifact and then replaced it with the
+report - raw values included - in the file the user was about to share as the
+safe copy. And a `scan --write-baseline` path inside the tree is excluded from
+scanning as the gate's own state, so naming a real document there both hid its
+findings and replaced it with an empty baseline. Before anything is written,
+an output that is the input document (any document in the tree, for `scan`),
+the policy file or the baseline being read is now refused with exit 1, as are
+two outputs on one path; `--write-baseline` may replace an existing file only
+if it is a baseline, so the in-place refresh still works.
 
-Only the page content stream went through a detector. A filled-in form shows
-its values through widget appearance streams, and a FreeText box or sticky
-note keeps its text in the annotation, so a typed-in email or a key pasted
-into a comment scanned as zero findings. Annotation text (and a Link's
-`mailto:` target, percent-decoded as for HTML) now becomes `annotation`
-blocks, and every filled-in form field a `name: value` `field` block, both
-appended after the last page so page block indexes still equal page numbers.
-Both count against the existing aggregate text cap. Embedded files are not
-opened; each produces an `embedded file skipped (not scanned)` warning.
+### Fixed - hidden DOCX and PDF content was never scanned
+
+Text a document carries outside its visible body reached no detector, so
+`--redact strict` exited 0 on a file that plainly held the value. All of it is
+now scanned and reported, as new block kinds appended after the existing ones
+(page and note indexes do not move):
+
+- **DOCX content controls** (`w:sdt`, `w:customXml`) - cover pages, tables of
+  contents, the page-number footer gallery, form templates - are read in
+  place. This is visible text, so it is rendered too; body block indexes after
+  such a control move (baselines are unaffected: fingerprints never held one).
+- **DOCX text boxes** no longer fuse with their host paragraph:
+  `KeyAKIAIOSFODNN7EXAMPLEjane.doe@example.com` hid the key inside one "email".
+- **`deletion`** - DOCX tracked deletions (`w:delText`).
+- **`comment`** - `word/comments.xml`.
+- **`annotation`** and form **`field`** - PDF sticky notes, FreeText boxes and
+  filled-in AcroForm values.
+- **`metadata`** - PDF Info and XMP; DOCX core, extended and custom
+  properties (author, last editor, company, keywords, anything custom).
+- **`link`** - DOCX external relationship targets and `HYPERLINK` field codes;
+  PDF link URIs. Percent-decoded, and every URL, not only `mailto:`.
+- **`alt_text`** - DOCX image and shape descriptions.
+- **`revision`** - text that only an earlier revision of an incrementally
+  updated PDF still holds: "redacting" a page by saving over it leaves the
+  original page in the file.
+
+Everything except content controls, text boxes and form fields is scanned but
+**not rendered into the sanitized artifact**, which is the document as its
+reader sees it: resurrecting what the author deleted, or what they never saw,
+into the copy that gets shared would hand the recipient exactly what the
+detectors cannot recognise (a bare name, a salary). New DOCX parts share the
+aggregate size budget and DTD refusal; the XMP packet is refused if it carries
+a DTD; PDF annotation, metadata and revision text share the aggregate text cap,
+and revisions are capped at 100.
+
+A test now also pins down that text a PDF viewer hides - under a black box,
+invisible, white, clipped, off the page, in a hidden layer - is still scanned.
 
 ### Fixed - `scan` dropped every extraction warning
 
 `extract` records extraction warnings in its JSON, but `scan` threw them away:
 none of the table, JSONL or SARIF outputs carried them and nothing reached
-stderr. A tree holding a legacy-encoded text file or an email with an
-attachment therefore passed `scan --redact strict` in complete silence, even
-though part of it was never read - exactly what the decoding fix above
-promised could not happen. Each warning now goes to stderr as
-`warning: <path>: <message>`; stdout and exit codes are unchanged.
+stderr. Each warning now goes to stderr as `warning: <path>: <message>`;
+stdout stays pure output.
 
 Entries below this line describe releases made under the old name and are
 left as they were written.

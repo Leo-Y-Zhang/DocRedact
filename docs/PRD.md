@@ -58,7 +58,8 @@ Read the rest of this document as consequences of that paragraph.
 - A baseline, so adoption on a legacy tree is not a wall of findings.
 
 Four capabilities are deliberately absent from this version. There is no OCR
-for image-only PDF pages; they produce an explicit warning instead. The
+for image-only PDF pages; they are reported as not scanned instead, which
+fails the strict gate. The
 redacted artifact is a text rendering, not a PDF that is still a PDF. No
 detection is model-based, so no NER for names or entities. And nothing reaches
 inside EML attachments, or inside HTML attributes other than `mailto:` hrefs.

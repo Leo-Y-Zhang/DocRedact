@@ -105,7 +105,7 @@ python -m venv .venv
 # .venv/bin/python -m pip install -e ".[dev]"           # POSIX
 ```
 
-Run the tests: `.venv/Scripts/pytest -q` (351 tests).
+Run the tests: `.venv/Scripts/pytest -q` (413 tests).
 
 ## Quickstart
 
@@ -268,11 +268,15 @@ absolute path) followed by the documented entity fields; `--redact mask`
 nulls `value`/`start`/`end` there too. Extraction warnings - the same ones
 `extract` records in its JSON, such as undecodable bytes, a skipped attachment
 or an image-only PDF page - go to stderr as `warning: <path>: <message>`, so
-stdout stays pure output; they do not change the exit code.
+stdout stays pure output.
 
-Two honest caveats. First, the gate only vouches for files it parsed - a
-broken file exits 1 instead of passing silently; fix it or exclude it with
-`--glob` before relying on the gate. Second, fingerprints use the basename
+Two honest caveats. First, the gate only vouches for what it read. A broken
+file exits 1 instead of passing silently, and so, in strict mode, does a file
+with content DocRedact could not scan - an embedded file or object, an
+image-only page, an e-mail attachment, text it could not decode. Those are
+the warnings that start with `not scanned:`, and strict mode names each such
+file in a `docredact: error: <path>: not fully scanned` line. Fix the file or
+exclude it with `--glob` before relying on the gate. Second, fingerprints use the basename
 (that is what makes extract and scan baselines compose), so two same-named
 files in *different subdirectories* holding the same value share a
 fingerprint: accepting `a/config.json`'s finding also accepts the identical
@@ -295,14 +299,15 @@ Exit codes:
 | Code | Meaning                                                              |
 |------|----------------------------------------------------------------------|
 | 0    | success (scan: even when entities were found, unless `--redact strict`; any error-free --write-baseline run) |
-| 1    | runtime error (missing file, unsupported/corrupt format, malformed baseline, IO failure) |
+| 1    | runtime error (missing file, unsupported/corrupt format, malformed baseline, IO failure, an output that would overwrite an input); with `--redact strict`, also any content reported `not scanned:` |
 | 2    | usage error (argparse default for bad arguments)                     |
 | 3    | `--redact strict` found at least one (new, if baselined) finding (extract and scan) |
 
 `--min-confidence` drops findings below the bar *before* masking - raising it
 deliberately leaves lower-confidence values in the text. `scan` exits 1 if
-the directory is missing or any file failed to parse - that outranks both a
-strict pass and `--write-baseline`'s exit 0 - and skips `.docredact.yaml` (it is
+the directory is missing or any file failed to parse (or, in strict mode, was
+not fully scanned) - that outranks both a strict pass and `--write-baseline`'s
+exit 0 - and skips `.docredact.yaml` (it is
 configuration, not a document - it still applies as policy) plus the gate's
 own `--baseline`/`--write-baseline` files when they sit inside the tree.
 
@@ -318,11 +323,11 @@ Top-level keys, in order:
 | `sha256`            | SHA-256 of the raw input bytes                                          |
 | `size_bytes`        | input size in bytes                                                     |
 | `format`            | one of `pdf`, `docx`, `eml`, `json`, `txt`, `md`, `html`, `csv`, `yaml`, `log`, `ini` |
-| `blocks`            | ordered `{index, kind, text}`; kinds: `page`, `annotation` (pdf), `section`, `paragraph`, `element`, `row`, `header` (eml + docx), `footer`, `footnote`, `endnote`, `comment`, `deletion` (docx), `field` (json + pdf form fields) |
+| `blocks`            | ordered `{index, kind, text}`; kinds: `page`, `annotation`, `revision` (pdf), `section`, `paragraph`, `element`, `row`, `header` (eml + docx), `footer`, `footnote`, `endnote`, `comment`, `deletion`, `alt_text` (docx), `field` (json + pdf form fields), `metadata`, `link` (docx + pdf). The hidden kinds - `annotation`, `revision`, `comment`, `deletion`, `alt_text`, `metadata`, `link` - are scanned but never rendered into the sanitized artifact |
 | `entities`          | ordered `{type, value, block, start, end, confidence, severity, fingerprint}`; in `mask` mode `value`/`start`/`end` are null |
 | `redaction`         | `{mode, total, by_type, masked}` summary                                |
 | `sanitized`         | only with `--write-redacted`: `{path (basename), manifest}`             |
-| `warnings`          | extraction warnings (image-only PDF pages, skipped attachments, ...)    |
+| `warnings`          | extraction warnings; those starting `not scanned: ` report content that was present but not read (an image-only page, an embedded file, an attachment, ...) and fail `--redact strict` |
 
 ## Architecture
 
@@ -343,7 +348,7 @@ src/docredact/
   sarif.py        value-free SARIF 2.1.0 emitter for scan --format sarif
 fixtures/         8 synthetic sample documents + their deterministic generator
 examples/         committed showcase report, sanitized artifact + tree-scan jsonl/sarif (drift-tested)
-tests/            351 pytest tests (unit + subprocess end-to-end + property-based + stress)
+tests/            413 pytest tests (unit + subprocess end-to-end + property-based + stress)
 ```
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the pipeline and the
@@ -387,13 +392,15 @@ Markdown, plain text). Its input surfaces and posture:
   `socket`, `ssl`, `http`, `urllib.request` or `subprocess`, and none reads an
   environment secret. The single import from the URL namespace is
   `urllib.parse.unquote`, used to percent-decode a `mailto:` href out of
-  scanned HTML or a PDF link - string manipulation with no transport behind it.
+  scanned HTML and link targets out of DOCX and PDF files - string
+  manipulation with no transport behind it.
   `tests/test_no_network.py` walks the AST of every source module and fails CI
   if that ever stops being true. (pypdf itself does import `subprocess`, and
   may invoke an external image decoder for JBIG2 images if you have one
   installed - a dependency behaviour, not something DocRedact initiates.)
 - **XML external entities (XXE) / entity expansion.** Every scanned DOCX XML
-  part (body, headers, footers, footnotes, endnotes, comments) is checked for
+  part (body, headers, footers, footnotes, endnotes, comments, document
+  properties, relationship parts) and a PDF's XMP packet is checked for
   `<!DOCTYPE`/`<!ENTITY` and refused before parsing; the stdlib `xml.etree`
   parser does not resolve external entities. HTML uses `html.parser` (no
   DTD/entity-fetch surface). The policy file uses a YAML-*subset* parser with
@@ -405,10 +412,10 @@ Markdown, plain text). Its input surfaces and posture:
   error, never a hang.
 - **Decompression / output-amplification bombs.** pypdf's per-stream cap is
   complemented by an aggregate extracted-text cap (~25 M chars) and a page
-  ceiling for PDFs (annotation and form-field text counts against the same
-  cap); DOCX enforces one aggregate byte budget (~100 MB) across
-  *every* scanned XML part - body, headers, footers, footnotes, endnotes,
-  comments - so extra parts cannot multiply the ceiling, rejecting first on the
+  ceiling for PDFs (annotation, form-field, metadata and earlier-revision text
+  counts against the same cap, and at most 100 revisions are read); DOCX
+  enforces one aggregate byte budget (~100 MB) across *every* scanned XML
+  part, so extra parts cannot multiply the ceiling, rejecting first on the
   advertised uncompressed size and then via a bounded read so a lying zip
   header cannot bypass the guard. EML and JSON expansion is proportional to
   input size.
@@ -417,12 +424,12 @@ Markdown, plain text). Its input surfaces and posture:
   one bad file does not abort the batch.
 
 What DocRedact does **not** defend against: peak memory proportional to the input
-plus the fixed extraction caps (no streaming mode); DOCX archive members
-other than the scanned XML parts (body, headers, footers, foot/endnotes,
-comments) are not inspected, and embedded files in a DOCX or PDF are not opened
-(each one produces a `skipped (not scanned)` warning); the `--out`/`--write-redacted`/baseline paths and
-the policy file are trusted CLI-level configuration; detection is heuristic,
-not a guarantee (see Limitations).
+plus the fixed extraction caps (no streaming mode); embedded files in a DOCX
+or PDF are not opened (each is reported `not scanned:`, which fails strict
+mode); the `--out`/`--write-redacted`/baseline paths and the policy file are
+trusted CLI-level configuration - they are refused only when they would
+overwrite an input or each other; detection is heuristic, not a guarantee
+(see Limitations).
 
 ## Limitations
 
@@ -445,16 +452,21 @@ not a guarantee (see Limitations).
 - IBAN validation is checksum-only (no per-country length table). YAML files
   are scanned as plain text, not parsed. Among HTML attribute values only
   `mailto:` hrefs are scanned (since 1.2); other attributes (`title`,
-  `data-*`, non-mailto URLs) are not. EML attachments are not scanned
-  (skipping them warns visibly).
-- What a DOCX or PDF carries besides its text is scanned only in part. DOCX
-  content controls, comments and tracked deletions are scanned, and so are PDF
-  annotation text, `mailto:` link targets and filled-in form fields; document
-  metadata (PDF Info/XMP, DOCX `docProps`: author, last editor, title), image
-  alt text and DOCX hyperlink targets are not. Embedded files (PDF
-  attachments, DOCX embedded objects) are not opened - each one produces a
-  visible `skipped (not scanned)` warning, like an EML attachment.
-- OCR is out of scope: image-only PDF pages produce an explicit warning.
+  `data-*`, non-mailto URLs) are not. EML attachments are not opened; each is
+  reported `not scanned:`, which fails strict mode.
+- What a DOCX or PDF carries besides its text is scanned: DOCX content
+  controls, text boxes, comments, tracked deletions, document properties,
+  hyperlink targets and image alt text; PDF annotations, filled-in form
+  fields, link targets, Info/XMP metadata and text that only an earlier
+  revision still holds. Not read, and reported `not scanned:` so strict mode
+  fails: embedded files and objects, macros and other binary DOCX parts,
+  altChunk-imported content. Still not inspected at all: DOCX charts, SmartArt,
+  custom XML data parts, the glossary, tracked-change author names and
+  field codes other than `HYPERLINK`; PDF bookmarks, JavaScript, XFA form
+  data and objects no page references.
+- OCR is out of scope: an image-only PDF page (one that draws something but
+  yields no text) is reported `not scanned:`, which fails strict mode. Images
+  inside a page or a DOCX are not flagged.
 - Encrypted or malformed PDFs fail with exit code 1 rather than partial
   extraction.
 - Text formats are decoded as UTF-8 unless a byte-order mark says otherwise

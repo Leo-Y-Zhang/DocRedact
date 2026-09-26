@@ -52,7 +52,10 @@ attacker-controlled.
 
 **Trusted: the CLI arguments and the policy file.** `--out`,
 `--write-redacted` and the baseline paths are written without confirmation and
-will overwrite. Policy regexes run against every block; they are length-capped
+will overwrite - except that an output which is an input (the document, any
+document in a scanned tree, the policy file, the baseline being read) or
+another output is refused with exit 1 before anything is written, and
+`--write-baseline` only replaces a file that already is a baseline. Policy regexes run against every block; they are length-capped
 at 500 characters but not sandboxed. This is documented in `policy.py` and in
 the README's threat model, and it is the boundary a future change is most
 likely to blur - by fetching a policy from a URL, say.
@@ -71,11 +74,11 @@ part of the compatibility promise.
 | `source` | str | Basename only, never a path - no directory layout or username can leak into a report. |
 | `sha256`, `size_bytes` | str, int | Of the raw input bytes. |
 | `format` | str | One of 11 names from `extractors.FORMATS`. |
-| `blocks` | list | `{index, kind, text}`. Kinds: `page`, `annotation`, `section`, `paragraph`, `element`, `row`, `field`, `header`, `footer`, `footnote`, `endnote`, `comment`, `deletion`. |
+| `blocks` | list | `{index, kind, text}`. Kinds: `page`, `section`, `paragraph`, `element`, `row`, `field`, `header`, `footer`, `footnote`, `endnote`, and the hidden kinds `annotation`, `revision`, `comment`, `deletion`, `alt_text`, `metadata`, `link` - scanned and reported, never rendered into the sanitized artifact (`sanitize.HIDDEN_KINDS`). |
 | `entities` | list | `{type, value, block, start, end, confidence, severity, fingerprint}`. **In `mask` mode `value`, `start` and `end` are null** - the one place a consumer must handle nulls. |
 | `redaction` | dict | `{mode, total, by_type, masked}`. |
 | `sanitized` | dict, **optional** | Present only with `--write-redacted`. A consumer must treat it as absent by default. |
-| `warnings` | list[str] | Image-only PDF pages, skipped EML attachments, empty extractions. |
+| `warnings` | list[str] | Empty extractions, and content present but not read - each of those starts `not scanned: ` (image-only pages, embedded files, attachments, undecodable text) and fails `--redact strict` with exit 1. |
 
 The case that actually reaches a consumer is a field that is absent or null on
 output predating a change:
@@ -86,11 +89,13 @@ output predating a change:
 - Block kinds `header`/`footer`/`footnote`/`endnote` did not exist before 1.2.
   They are appended *after* the body blocks precisely so that existing body
   block indexes did not shift.
-- Block kinds `comment` and `deletion` (DOCX) and `annotation` plus
-  form-field `field` blocks (PDF) are newer still, and follow the same rule:
-  DOCX comments come after the endnotes and tracked deletions after
-  everything else; PDF annotations and form fields come after the last page,
-  so a page block's index is still its page number.
+- The hidden kinds and PDF form-field `field` blocks are newer still, and
+  follow the same rule: DOCX comments come after the endnotes, then tracked
+  deletions, metadata, links and alt text; PDF annotations and links, form
+  fields, metadata and earlier-revision text come after the last page, so a
+  page block's index is still its page number. DOCX content controls are the
+  exception: they are visible body text, read in place, so body indexes after
+  one move (fingerprints never held a block index).
 
 ### The baseline file (`--write-baseline`)
 
@@ -196,7 +201,8 @@ regenerate the console script - under a minute.
 
 The two irreversible acts it can perform are the user's to control. It
 overwrites output paths without asking: `--out`, `--write-redacted` and
-`--write-baseline` all clobber, so point them at fresh paths. And a written
+`--write-baseline` all clobber, so point them at fresh paths. The one thing
+it refuses to clobber is an input, or one output with another. And a written
 artifact cannot be recalled - as the PRD puts it, the output *is* the access
 control.
 
@@ -206,7 +212,7 @@ way, because the fingerprint never contained the tool name.
 
 ## The tests that would fail
 
-351 of them. Grouped by what they would catch:
+413 of them. Grouped by what they would catch:
 
 - **Positive** - `test_detectors.py` asserts every detector's true positives;
   `test_extractors.py` asserts each of the 11 formats produces the expected
