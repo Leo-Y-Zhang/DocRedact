@@ -12,12 +12,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
 
 from . import __version__
-from .baseline import load_baseline, write_baseline
+from .baseline import BaselineError, load_baseline, write_baseline
 from .core import REDACT_MODES, build_document, build_sanitized
 from .detectors import Confidence
 from .extractors import FORMATS, DocRedactError
@@ -47,6 +48,59 @@ def _resolve_policy(target: Path, rules: str | None) -> Policy | None:
 EXIT_OK = 0
 EXIT_ERROR = 1
 EXIT_STRICT = 3
+
+
+def _same_path(a: Path, b: Path) -> bool:
+    """True if ``a`` and ``b`` name the same file (through symlinks and hard links)."""
+    try:
+        if a.exists() and b.exists():
+            return os.path.samefile(a, b)
+        return os.path.normcase(a.resolve()) == os.path.normcase(b.resolve())
+    except OSError:
+        return False
+
+
+def _check_outputs(
+    outputs: list[tuple[str, str | None]],
+    inputs: list[Path],
+    baseline: str | None,
+) -> None:
+    """Refuse, before anything is written, an output that would destroy an input.
+
+    ``outputs`` are (flag, path) pairs. No output may be one of ``inputs`` (the
+    document or documents being read, and the policy file) or the ``baseline``
+    being read, no two outputs may
+    share a path (the later write would replace the earlier one: --out after
+    --write-redacted put the raw-value JSON report into the "sanitized" file), and
+    --write-baseline may only replace a file that already is a baseline -
+    refreshing ``--baseline FILE --write-baseline FILE`` in place is the one
+    sanctioned overwrite of something that is read.
+    """
+    named = [(flag, Path(path)) for flag, path in outputs if path]
+    read = Path(baseline) if baseline else None
+    for i, (flag, path) in enumerate(named):
+        for source in [*inputs, *([read] if read else [])]:
+            if source is read and flag == "--write-baseline":
+                continue  # the documented in-place refresh
+            if _same_path(path, source):
+                raise DocRedactError(
+                    f"refusing to overwrite an input with {flag}: {path.name}"
+                )
+        for other_flag, other in named[:i]:
+            if _same_path(path, other):
+                raise DocRedactError(
+                    f"refusing to write {other_flag} and {flag} to the same file: {path.name}"
+                )
+        if flag == "--write-baseline" and path.is_file():
+            if read is not None and _same_path(path, read):
+                continue
+            try:
+                load_baseline(path)
+            except BaselineError:
+                raise DocRedactError(
+                    f"refusing to overwrite {path.name} with --write-baseline: "
+                    "it exists and is not a baseline file"
+                ) from None
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -185,6 +239,16 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def _cmd_extract(args: argparse.Namespace) -> int:
     target = Path(args.file)
+    policy_path = discover_policy(target, Path(args.rules) if args.rules else None)
+    _check_outputs(
+        [
+            ("--write-redacted", args.write_redacted),
+            ("--write-baseline", args.write_baseline),
+            ("--out", args.out),
+        ],
+        [target] + ([policy_path] if policy_path else []),
+        args.baseline,
+    )
     policy = _resolve_policy(target, args.rules)
     min_confidence = Confidence(args.min_confidence)
     document = build_document(target, args.redact, args.timestamp, min_confidence, policy)
@@ -255,6 +319,12 @@ def _cmd_scan(args: argparse.Namespace) -> int:
             and (not state_files or p.resolve() not in state_files)
         ),
         key=lambda p: p.relative_to(root).as_posix(),
+    )
+    policy_path = discover_policy(root, Path(args.rules) if args.rules else None)
+    _check_outputs(
+        [("--write-baseline", args.write_baseline), ("--out", args.out)],
+        paths + ([policy_path] if policy_path else []),
+        args.baseline,
     )
     if not paths:
         # An empty tree has no findings; recording that is still meaningful.

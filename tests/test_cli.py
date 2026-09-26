@@ -190,3 +190,108 @@ def test_console_script_help() -> None:
     )
     assert proc.returncode == 0
     assert "extract" in proc.stdout and "scan" in proc.stdout
+
+
+# -- outputs never overwrite an input ---------------------------------------------
+
+
+def _victim(tmp_path: Path) -> Path:
+    path = tmp_path / "victim.txt"
+    path.write_text("original: jane.doe@example.com\n", encoding="utf-8")
+    return path
+
+
+@pytest.mark.parametrize("flag", ["--out", "--write-redacted", "--write-baseline"])
+def test_extract_refuses_to_write_over_its_input(tmp_path: Path, flag: str) -> None:
+    # --write-redacted onto the input replaced the original document with its
+    # sanitized rendering; --out replaced it with the JSON report. Either way
+    # the document was gone, with exit 0.
+    victim = _victim(tmp_path)
+    proc = run_cli("extract", str(victim), flag, str(victim))
+    assert proc.returncode == 1
+    assert "refusing to overwrite" in proc.stderr
+    assert victim.read_text(encoding="utf-8") == "original: jane.doe@example.com\n"
+
+
+def test_extract_refuses_to_write_over_its_input_through_a_symlink(tmp_path: Path) -> None:
+    victim = _victim(tmp_path)
+    link = tmp_path / "link.txt"
+    try:
+        link.symlink_to(victim)
+    except OSError:
+        pytest.skip("symlinks unavailable")
+    proc = run_cli("extract", str(victim), "--write-redacted", str(link))
+    assert proc.returncode == 1
+    assert victim.read_text(encoding="utf-8") == "original: jane.doe@example.com\n"
+
+
+def test_extract_refuses_two_outputs_on_one_path(tmp_path: Path) -> None:
+    # --write-redacted X --out X wrote the safe artifact, then replaced it with
+    # the JSON report - raw values included - in the file the user was about
+    # to share as the sanitized copy.
+    share = tmp_path / "share.txt"
+    proc = run_cli(
+        "extract", str(_victim(tmp_path)), "--write-redacted", str(share), "--out", str(share)
+    )
+    assert proc.returncode == 1
+    assert not share.exists()
+
+
+def test_extract_refuses_to_write_over_the_policy_file(tmp_path: Path) -> None:
+    policy = tmp_path / ".docredact.yaml"
+    policy.write_text("disable:\n  - phone\n", encoding="utf-8")
+    proc = run_cli("extract", str(_victim(tmp_path)), "--out", str(policy))
+    assert proc.returncode == 1
+    assert policy.read_text(encoding="utf-8") == "disable:\n  - phone\n"
+
+
+def test_write_baseline_only_replaces_a_baseline_file(tmp_path: Path) -> None:
+    notes = tmp_path / "notes.json"
+    notes.write_text('{"owner": "a@example.com"}\n', encoding="utf-8")
+    proc = run_cli("extract", str(_victim(tmp_path)), "--write-baseline", str(notes))
+    assert proc.returncode == 1
+    assert "not a baseline file" in proc.stderr
+    assert notes.read_text(encoding="utf-8") == '{"owner": "a@example.com"}\n'
+
+
+def test_baseline_refresh_in_place_still_works(tmp_path: Path) -> None:
+    victim = _victim(tmp_path)
+    baseline = tmp_path / "baseline.json"
+    assert run_cli("extract", str(victim), "--write-baseline", str(baseline)).returncode == 0
+    proc = run_cli(
+        "extract", str(victim), "--baseline", str(baseline), "--write-baseline", str(baseline)
+    )
+    assert proc.returncode == 0, proc.stderr
+
+
+def test_scan_refuses_to_write_over_a_document_in_the_tree(tmp_path: Path) -> None:
+    root = tmp_path / "tree"
+    root.mkdir()
+    notes = root / "notes.txt"
+    notes.write_text("contact a@example.com\n", encoding="utf-8")
+    proc = run_cli("scan", str(root), "--out", str(notes))
+    assert proc.returncode == 1
+    assert notes.read_text(encoding="utf-8") == "contact a@example.com\n"
+
+
+def test_scan_write_baseline_cannot_clobber_a_tree_document(tmp_path: Path) -> None:
+    # A --write-baseline path inside the tree is treated as the gate's own state
+    # and excluded from the scan - so pointing it at a real document both hid
+    # that document's findings and replaced it with an empty baseline.
+    root = tmp_path / "tree"
+    root.mkdir()
+    config = root / "config.json"
+    config.write_text('{"owner": "a@example.com"}\n', encoding="utf-8")
+    proc = run_cli("scan", str(root), "--write-baseline", str(config))
+    assert proc.returncode == 1
+    assert config.read_text(encoding="utf-8") == '{"owner": "a@example.com"}\n'
+
+
+def test_extract_refuses_out_over_the_baseline_it_reads(tmp_path: Path) -> None:
+    victim = _victim(tmp_path)
+    baseline = tmp_path / "baseline.json"
+    run_cli("extract", str(victim), "--write-baseline", str(baseline))
+    before = baseline.read_text(encoding="utf-8")
+    proc = run_cli("extract", str(victim), "--baseline", str(baseline), "--out", str(baseline))
+    assert proc.returncode == 1
+    assert baseline.read_text(encoding="utf-8") == before
