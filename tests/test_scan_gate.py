@@ -396,13 +396,13 @@ class TestExtractionWarningsReachTheGate:
             'Content-Disposition: attachment; filename="k.bin"\n\nxyz\n--B--\n',
             encoding="utf-8",
         )
-        proc = _run("scan", str(root), "--redact", "strict", "--format", "jsonl")
-        assert proc.returncode == 3  # the From: address; exit codes are unchanged
+        proc = _run("scan", str(root), "--format", "jsonl")
+        assert proc.returncode == 0  # report mode reports; it passes nothing
         assert [json.loads(line)["path"] for line in proc.stdout.splitlines()] == ["sub/mail.eml"]
         assert proc.stderr.splitlines() == [
-            "warning: legacy.txt: input is not valid utf-8: undecodable bytes were "
-            "replaced, so some text may not have been scanned",
-            "warning: sub/mail.eml: attachment skipped (not scanned): application/octet-stream",
+            "warning: legacy.txt: not scanned: input is not valid utf-8: undecodable "
+            "bytes were replaced, so some text may not have been scanned",
+            "warning: sub/mail.eml: not scanned: attachment (application/octet-stream)",
         ]
 
     def test_clean_fixture_scan_stays_quiet(self) -> None:

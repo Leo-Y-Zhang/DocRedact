@@ -72,7 +72,7 @@ class TestEml:
         doc = _extract("a.eml", eml, tmp_path)
         warnings = doc["warnings"]
         assert isinstance(warnings, list)
-        assert any("attachment skipped" in w for w in warnings)
+        assert "not scanned: attachment (application/octet-stream)" in warnings
 
     def test_headers_only_email_still_scans(self, tmp_path: Path) -> None:
         doc = _extract("h.eml", "From: x@example.com\nSubject: no body\n\n", tmp_path)

@@ -52,6 +52,20 @@ class ExtractionError(DocRedactError):
     """The file bytes could not be parsed as the detected format."""
 
 
+# Every warning that means "part of this input was NOT read" starts with this
+# prefix: an embedded file, an image-only page, a page pypdf could not parse, text
+# in a font with no Unicode mapping, bytes that are not valid text, an e-mail
+# attachment. A gate that did not read part of a file did not check it, so
+# ``--redact strict`` treats any such warning like a parse error (exit 1). JSON
+# consumers can test for the same prefix.
+NOT_SCANNED = "not scanned: "
+
+
+def is_gap(warning: str) -> bool:
+    """True if ``warning`` reports content that was present but not scanned."""
+    return warning.startswith(NOT_SCANNED)
+
+
 FORMATS = {
     ".pdf": "pdf",
     ".docx": "docx",
@@ -126,12 +140,22 @@ def _decode_text(data: bytes) -> tuple[str, list[str]]:
         (enc for bom, enc in _BOM_ENCODINGS if data.startswith(bom)), "utf-8"
     )
     try:
-        return data.decode(encoding), []
+        text, warnings = data.decode(encoding), []
     except UnicodeDecodeError:
-        return data.decode(encoding, errors="replace"), [
-            f"input is not valid {encoding}: undecodable bytes were replaced, "
-            "so some text may not have been scanned"
+        text, warnings = data.decode(encoding, errors="replace"), [
+            f"{NOT_SCANNED}input is not valid {encoding}: undecodable bytes were "
+            "replaced, so some text may not have been scanned"
         ]
+    # UTF-16 written WITHOUT a byte-order mark is valid UTF-8 as far as the
+    # decoder is concerned: every ASCII character arrives with a U+0000 beside
+    # it, nothing fails, and no detector can match. Text documents do not
+    # contain NUL, so its presence means the bytes were not read as text.
+    if "\x00" in text:
+        warnings.append(
+            f"{NOT_SCANNED}input contains NUL bytes (UTF-16 without a byte-order "
+            "mark, or binary data), so its text was not read"
+        )
+    return text, warnings
 
 
 def extract_blocks(data: bytes, fmt: str) -> tuple[list[Block], list[str]]:
@@ -261,6 +285,51 @@ def _pdf_text(value: object) -> str:
     return value.strip()
 
 
+def _pdf_file_name(annotation: DictionaryObject) -> str:
+    """The file name a FileAttachment annotation carries, or "(unnamed)"."""
+    spec = annotation.get("/FS")
+    spec = spec.get_object() if spec is not None else None
+    if isinstance(spec, DictionaryObject):
+        for key in ("/UF", "/F"):
+            name = _pdf_text(spec.get(key))
+            if name:
+                return name
+    return _pdf_text(spec) or "(unnamed)"
+
+
+def _pdf_page_has_content(page: PageObject) -> bool:
+    """True if the page draws anything at all (a blank page leaves nothing unread)."""
+    contents = page.get_contents()
+    return contents is not None and bool(contents.get_data().strip())
+
+
+def _pdf_unmapped_fonts(page: PageObject) -> list[str]:
+    """Names of the page's fonts whose text cannot be mapped to Unicode.
+
+    A composite font with the Identity encoding stores glyph ids, not
+    characters; without a /ToUnicode map nothing says which glyph is which
+    letter, and pypdf silently emits the raw ids - garbage no detector can
+    match. Subset fonts in PDFs produced by many tools look exactly like this.
+    """
+    resources = page.get("/Resources")
+    resources = resources.get_object() if resources is not None else None
+    fonts = resources.get("/Font") if isinstance(resources, DictionaryObject) else None
+    fonts = fonts.get_object() if fonts is not None else None
+    if not isinstance(fonts, DictionaryObject):
+        return []
+    unmapped = []
+    for name, reference in fonts.items():
+        font = reference.get_object() if isinstance(reference, PdfObject) else None
+        if (
+            isinstance(font, DictionaryObject)
+            and font.get("/Subtype") == "/Type0"
+            and font.get("/Encoding") in ("/Identity-H", "/Identity-V")
+            and "/ToUnicode" not in font
+        ):
+            unmapped.append(str(name).lstrip("/"))
+    return sorted(unmapped)
+
+
 def _pdf_annotation_texts(page: PageObject, warnings: list[str]) -> Iterator[str]:
     """Scannable text carried by one page's annotations, one string per annotation.
 
@@ -284,7 +353,7 @@ def _pdf_annotation_texts(page: PageObject, warnings: list[str]) -> Iterator[str
         if subtype in ("/Widget", "/Popup"):
             continue
         if subtype == "/FileAttachment":
-            warnings.append("embedded file skipped (not scanned)")
+            warnings.append(f"{NOT_SCANNED}embedded file {_pdf_file_name(annotation)}")
         parts = [_pdf_text(annotation.get("/Contents"))]
         if subtype == "/Link":
             action = annotation.get("/A")
@@ -352,17 +421,40 @@ def _extract_pdf(data: bytes) -> tuple[list[Block], list[str]]:
 
     extra: list[tuple[str, str]] = []  # (kind, text), appended after the pages
     for i, page in enumerate(pages):
+        failed = False
         try:
             text = (page.extract_text() or "").strip()
         except Exception as exc:
-            text = ""
-            warnings.append(f"page {i}: text extraction failed ({exc})")
+            text, failed = "", True
+            warnings.append(f"{NOT_SCANNED}page {i}: text extraction failed ({exc})")
         charge(text)
-        if not text:
+        try:
+            unmapped = _pdf_unmapped_fonts(page)
+        except Exception:
+            unmapped = []
+        if unmapped:
             warnings.append(
-                f"page {i}: no extractable text (image-only pages need OCR, "
-                "which is out of scope)"
+                f"{NOT_SCANNED}page {i}: text in font {', '.join(unmapped)} cannot be "
+                "mapped to characters (no ToUnicode map)"
             )
+        elif "\ufffd" in text:
+            # pypdf emits U+FFFD for a glyph it cannot map to Unicode (a font
+            # with a custom encoding and no ToUnicode map): that text was on
+            # the page, but no detector can match what it became.
+            warnings.append(
+                f"{NOT_SCANNED}page {i}: some text could not be decoded (a font "
+                "without a usable Unicode mapping)"
+            )
+        if not text and not failed:
+            try:
+                drawn = _pdf_page_has_content(page)
+            except Exception:
+                drawn = True  # unreadable content is not proof of a blank page
+            if drawn:
+                warnings.append(
+                    f"{NOT_SCANNED}page {i} has no extractable text (image-only "
+                    "pages need OCR, which is out of scope)"
+                )
         blocks.append(Block(i, "page", text))
         try:
             for note in _pdf_annotation_texts(page, warnings):
@@ -370,20 +462,20 @@ def _extract_pdf(data: bytes) -> tuple[list[Block], list[str]]:
         except ExtractionError:
             raise
         except Exception as exc:
-            warnings.append(f"page {i}: annotations could not be read ({exc})")
+            warnings.append(f"{NOT_SCANNED}page {i}: annotations could not be read ({exc})")
     try:
         for field in _pdf_field_texts(reader):
             extra.append(("field", charge(field)))
     except ExtractionError:
         raise
     except Exception as exc:
-        warnings.append(f"form fields could not be read ({exc})")
+        warnings.append(f"{NOT_SCANNED}form fields could not be read ({exc})")
     try:
-        embedded = len(reader.attachments)
+        embedded = sorted(reader.attachments)
     except Exception as exc:
-        embedded = 0
-        warnings.append(f"embedded files could not be listed ({exc})")
-    warnings.extend(["embedded file skipped (not scanned)"] * embedded)
+        embedded = []
+        warnings.append(f"{NOT_SCANNED}embedded files could not be listed ({exc})")
+    warnings.extend(f"{NOT_SCANNED}embedded file {name}" for name in embedded)
     blocks.extend(Block(len(blocks) + n, kind, text) for n, (kind, text) in enumerate(extra))
     return blocks, warnings
 
@@ -494,8 +586,42 @@ _DOCX_NOTE_KINDS = frozenset(kind for _, kind in _DOCX_NOTE_PARTS)
 
 # Embedded objects (an Excel sheet pasted into a report, an OLE object) are
 # whole second documents in their own formats. They are not scanned, and each
-# one says so, the way an EML attachment does.
+# one is reported as not scanned, which fails the strict gate.
 _DOCX_EMBEDDINGS_PREFIX = "word/embeddings/"
+# Printer settings are a binary DEVMODE record, not document text.
+_DOCX_PRINTER_PREFIX = "word/printerSettings/"
+# An altChunk imports a whole other file (HTML, RTF, another DOCX) that Word
+# merges into the body when it opens the document; its text is not in any XML
+# part this extractor reads.
+_ALTCHUNK_TYPE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/aFChunk"
+_RELS_NS = "{http://schemas.openxmlformats.org/package/2006/relationships}"
+
+
+def _docx_unscanned_parts(archive: zipfile.ZipFile) -> list[str]:
+    """What the package carries that the extractor cannot read, one entry each.
+
+    Embedded objects, imported altChunk content and other binary parts (macros,
+    ActiveX controls) can all hold text; images are out of scope by design (no
+    OCR) and printer settings hold none. Sorted, so output is deterministic.
+    """
+    names = [n for n in archive.namelist() if not n.endswith("/")]
+    found: list[str] = []
+    for name in names:
+        if name.startswith(_DOCX_EMBEDDINGS_PREFIX):
+            found.append(f"embedded object {name}")
+        elif name.lower().endswith(".bin") and not name.startswith(_DOCX_PRINTER_PREFIX):
+            found.append(f"binary part {name}")
+    for rels in (n for n in names if n.startswith("word/_rels/") and n.endswith(".rels")):
+        try:
+            root, _ = _read_docx_xml(archive, rels, _DOCX_MAX_XML_BYTES)
+        except ExtractionError:
+            found.append(f"relationships {rels} could not be read")
+            continue
+        for rel in root.iter(f"{_RELS_NS}Relationship"):
+            if rel.get("Type") == _ALTCHUNK_TYPE:
+                target = rel.get("Target", "")
+                found.append(f"imported content word/{target.lstrip('/')}")
+    return sorted(set(found))
 
 
 def _read_docx_xml(
@@ -605,11 +731,7 @@ def _extract_docx(data: bytes) -> tuple[list[Block], list[str]]:
             for kind, name in _docx_extra_parts(archive.namelist()):
                 part_root, budget = _read_docx_xml(archive, name, budget)
                 extras.append((kind, part_root))
-            embedded = sum(
-                1
-                for name in archive.namelist()
-                if name.startswith(_DOCX_EMBEDDINGS_PREFIX) and not name.endswith("/")
-            )
+            unscanned = _docx_unscanned_parts(archive)
     except zipfile.BadZipFile as exc:
         raise ExtractionError(f"failed to parse DOCX: {exc}") from exc
     except KeyError as exc:
@@ -633,7 +755,7 @@ def _extract_docx(data: bytes) -> tuple[list[Block], list[str]]:
         for text in _docx_deleted_texts(part_root):
             blocks.append(Block(len(blocks), "deletion", text))
     warnings = [] if blocks else ["no text blocks extracted"]
-    warnings.extend(["embedded object skipped (not scanned)"] * embedded)
+    warnings.extend(f"{NOT_SCANNED}{what}" for what in unscanned)
     return blocks, warnings
 
 
@@ -678,7 +800,7 @@ def _extract_eml(data: bytes) -> tuple[list[Block], list[str]]:
             try:
                 body = part.get_content()
             except Exception as exc:
-                warnings.append(f"text part could not be decoded ({exc})")
+                warnings.append(f"{NOT_SCANNED}text part could not be decoded ({exc})")
                 continue
             for paragraph in _extract_txt(str(body)):
                 _add("paragraph", paragraph.text)
@@ -686,12 +808,12 @@ def _extract_eml(data: bytes) -> tuple[list[Block], list[str]]:
             try:
                 body = part.get_content()
             except Exception as exc:
-                warnings.append(f"html part could not be decoded ({exc})")
+                warnings.append(f"{NOT_SCANNED}html part could not be decoded ({exc})")
                 continue
             for element in _extract_html(str(body)):
                 _add("element", element.text)
         else:
-            warnings.append(f"attachment skipped (not scanned): {content_type}")
+            warnings.append(f"{NOT_SCANNED}attachment ({content_type})")
 
     if not blocks:
         warnings.append("no text blocks extracted")

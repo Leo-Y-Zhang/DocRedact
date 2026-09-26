@@ -428,7 +428,10 @@ def test_docx_embedded_objects_warn_that_they_were_not_scanned() -> None:
         }
     )
     _, warnings = extract_blocks(data, "docx")
-    assert warnings == ["embedded object skipped (not scanned)"] * 2
+    assert warnings == [
+        "not scanned: embedded object word/embeddings/Microsoft_Excel_Worksheet.xlsx",
+        "not scanned: embedded object word/embeddings/oleObject1.bin",
+    ]
 
 
 def test_docx_not_a_zip_raises(tmp_path: Path) -> None:
@@ -683,7 +686,7 @@ def test_pdf_filled_form_field_values_are_scanned(tmp_path: Path) -> None:
 def test_pdf_embedded_file_warns_that_it_was_not_scanned() -> None:
     data = _pdf_with(attachment=b"AKIAIOSFODNN7EXAMPLE")
     blocks, warnings = extract_blocks(data, "pdf")
-    assert warnings == ["embedded file skipped (not scanned)"]
+    assert warnings == ["not scanned: embedded file notes.txt"]
     assert [b.kind for b in blocks] == ["page", "page"]
 
 

@@ -2,7 +2,10 @@
 
 Exit codes:
     0  success (scan: even when entities were found, unless --redact strict)
-    1  runtime error (missing file, unsupported/corrupt format, IO failure)
+    1  runtime error (missing file, unsupported/corrupt format, IO failure, an
+       output that would overwrite an input); under --redact strict also any
+       content reported "not scanned" - the gate fails closed on what it did
+       not read
     2  usage error (argparse default for bad arguments)
     3  --redact strict found at least one (new, if baselined) finding
        (extract and scan; scan parse errors outrank this and stay exit 1)
@@ -21,7 +24,7 @@ from . import __version__
 from .baseline import BaselineError, load_baseline, write_baseline
 from .core import REDACT_MODES, build_document, build_sanitized
 from .detectors import Confidence
-from .extractors import FORMATS, DocRedactError
+from .extractors import FORMATS, DocRedactError, is_gap
 from .metadata import SEVERITY_ORDER
 from .policy import Policy, discover_policy, load_policy
 from .report import render_markdown, render_stats
@@ -133,7 +136,7 @@ def _build_parser() -> argparse.ArgumentParser:
         choices=REDACT_MODES,
         default="report",
         help="report: list findings; mask: replace them in text; "
-        "strict: exit 3 if any finding (default: report)",
+        "strict: exit 3 if any finding, 1 if any content was not scanned (default: report)",
     )
     extract.add_argument(
         "--min-confidence",
@@ -207,7 +210,8 @@ def _build_parser() -> argparse.ArgumentParser:
         choices=REDACT_MODES,
         default="report",
         help="report: include finding values in machine output; mask: null them; "
-        "strict: exit 3 if any (new, if baselined) finding (default: report)",
+        "strict: exit 3 if any (new, if baselined) finding, 1 if any content was not "
+        "scanned (default: report)",
     )
     scan.add_argument(
         "--baseline",
@@ -289,6 +293,15 @@ def _cmd_extract(args: argparse.Namespace) -> int:
         print(payload)
     if args.stats:
         print(render_stats(document), end="", file=sys.stderr)
+    warnings = document["warnings"]
+    assert isinstance(warnings, list)
+    gaps = [w for w in warnings if is_gap(w)]
+    if args.redact == "strict" and gaps:
+        # A gate that did not read part of the document did not check it: fail
+        # closed, like a parse error, outranking a finding and a fresh baseline.
+        for gap in gaps:
+            print(f"docredact: error: {gap}", file=sys.stderr)
+        return EXIT_ERROR
     if args.write_baseline:
         return EXIT_OK  # everything just recorded is accepted by definition
     redaction = document["redaction"]
@@ -344,6 +357,7 @@ def _cmd_scan(args: argparse.Namespace) -> int:
     # (tree-relative posix path, document or None when the file failed to parse)
     entries: list[tuple[str, dict[str, Any] | None]] = []
     errors = 0
+    partial: list[str] = []  # files with content that was not scanned
     for path in paths:
         name = path.relative_to(root).as_posix()
         try:
@@ -360,6 +374,8 @@ def _cmd_scan(args: argparse.Namespace) -> int:
         assert isinstance(warnings, list)
         for warning in warnings:
             print(f"warning: {name}: {warning}", file=sys.stderr)
+        if any(is_gap(w) for w in warnings):
+            partial.append(name)
         entries.append((name, document))
 
     # One flat findings list for the whole tree: each finding is the entity dict
@@ -393,7 +409,16 @@ def _cmd_scan(args: argparse.Namespace) -> int:
         payload = _render_scan_table(entries, findings)
     _write_output(args.out, payload)
 
-    if errors:
+    if args.redact == "strict":
+        # Content the gate could not read is a read failure too: strict mode fails
+        # closed on it exactly as it does on a file that failed to parse.
+        for name in partial:
+            print(
+                f"docredact: error: {name}: not fully scanned (see the 'not scanned' "
+                "warnings above)",
+                file=sys.stderr,
+            )
+    if errors or (args.redact == "strict" and partial):
         # A file the gate could not read outranks everything else: neither a freshly
         # recorded baseline nor a quiet strict pass covers the whole tree then.
         return EXIT_ERROR
