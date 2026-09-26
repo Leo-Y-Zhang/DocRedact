@@ -476,8 +476,64 @@ def _extract_pdf(data: bytes) -> tuple[list[Block], list[str]]:
         embedded = []
         warnings.append(f"{NOT_SCANNED}embedded files could not be listed ({exc})")
     warnings.extend(f"{NOT_SCANNED}embedded file {name}" for name in embedded)
+    try:
+        for line in _pdf_metadata_texts(reader, warnings):
+            extra.append(("metadata", charge(line)))
+    except ExtractionError:
+        raise
+    except Exception as exc:
+        warnings.append(f"{NOT_SCANNED}document metadata could not be read ({exc})")
     blocks.extend(Block(len(blocks) + n, kind, text) for n, (kind, text) in enumerate(extra))
     return blocks, warnings
+
+
+_RDF_NS = "{http://www.w3.org/1999/02/22-rdf-syntax-ns#}"
+
+
+def _xml_texts(root: ElementTree.Element) -> Iterator[str]:
+    """Every attribute value and text node under ``root``, in document order."""
+    for element in root.iter():
+        for key, value in element.attrib.items():
+            if not key.startswith(_RDF_NS) and value.strip():
+                yield value.strip()
+        if element.text and element.text.strip():
+            yield element.text.strip()
+
+
+def _pdf_metadata_texts(reader: PdfReader, warnings: list[str]) -> list[str]:
+    """``key: value`` per Info-dictionary entry, then one ``XMP: ...`` line.
+
+    Author, title, subject, keywords and any custom Info key travel with the
+    file and show in every viewer's Properties dialog; the XMP packet repeats
+    them (plus creator tools, editing history and whatever else a producer
+    writes) as XML. Neither is part of a page, so neither was ever scanned.
+    """
+    lines: list[str] = []
+    info = reader.metadata
+    if info is not None:
+        for key in sorted(info):
+            text = _pdf_text(info.get(key))
+            if text:
+                lines.append(f"{str(key).lstrip('/')}: {text}")
+    root = reader.trailer.get("/Root")
+    root = root.get_object() if root is not None else None
+    stream = root.get("/Metadata") if isinstance(root, DictionaryObject) else None
+    stream = stream.get_object() if stream is not None else None
+    if stream is None or not hasattr(stream, "get_data"):
+        return lines
+    packet = stream.get_data()
+    if b"<!DOCTYPE" in packet or b"<!ENTITY" in packet:
+        warnings.append(f"{NOT_SCANNED}XMP metadata could not be read (DTD not allowed)")
+        return lines
+    try:
+        xmp = ElementTree.fromstring(packet)
+    except ElementTree.ParseError as exc:
+        warnings.append(f"{NOT_SCANNED}XMP metadata could not be read (bad XML: {exc})")
+        return lines
+    text = " ".join(_xml_texts(xmp))
+    if text:
+        lines.append(f"XMP: {text}")
+    return lines
 
 
 _W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
@@ -597,31 +653,56 @@ _ALTCHUNK_TYPE = "http://schemas.openxmlformats.org/officeDocument/2006/relation
 _RELS_NS = "{http://schemas.openxmlformats.org/package/2006/relationships}"
 
 
-def _docx_unscanned_parts(archive: zipfile.ZipFile) -> list[str]:
+def _docx_unscanned_parts(
+    names: list[str], rels: list[tuple[str, ElementTree.Element]]
+) -> list[str]:
     """What the package carries that the extractor cannot read, one entry each.
 
     Embedded objects, imported altChunk content and other binary parts (macros,
     ActiveX controls) can all hold text; images are out of scope by design (no
     OCR) and printer settings hold none. Sorted, so output is deterministic.
     """
-    names = [n for n in archive.namelist() if not n.endswith("/")]
     found: list[str] = []
     for name in names:
+        if name.endswith("/"):
+            continue
         if name.startswith(_DOCX_EMBEDDINGS_PREFIX):
             found.append(f"embedded object {name}")
         elif name.lower().endswith(".bin") and not name.startswith(_DOCX_PRINTER_PREFIX):
             found.append(f"binary part {name}")
-    for rels in (n for n in names if n.startswith("word/_rels/") and n.endswith(".rels")):
-        try:
-            root, _ = _read_docx_xml(archive, rels, _DOCX_MAX_XML_BYTES)
-        except ExtractionError:
-            found.append(f"relationships {rels} could not be read")
+    for rels_name, root in rels:
+        if not rels_name.startswith("word/_rels/"):
             continue
         for rel in root.iter(f"{_RELS_NS}Relationship"):
             if rel.get("Type") == _ALTCHUNK_TYPE:
                 target = rel.get("Target", "")
                 found.append(f"imported content word/{target.lstrip('/')}")
     return sorted(set(found))
+
+
+# Document properties: author, last editor, company, manager, title, and any
+# custom property a template or add-in stores. Word shows them under File >
+# Info; none of them is part of the body.
+_DOCX_PROPERTY_PARTS = ("docProps/core.xml", "docProps/app.xml", "docProps/custom.xml")
+
+
+def _localname(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1]
+
+
+def _docx_property_lines(name: str, root: ElementTree.Element) -> list[str]:
+    """``property: value`` per non-empty document property in one docProps part."""
+    lines: list[str] = []
+    if name == "docProps/custom.xml":
+        for prop in root:
+            value = " ".join(t.strip() for t in prop.itertext() if t.strip())
+            if value:
+                lines.append(f"{prop.get('name', 'property')}: {value}")
+        return lines
+    for element in root.iter():
+        if len(element) == 0 and element.text and element.text.strip():
+            lines.append(f"{_localname(element.tag)}: {element.text.strip()}")
+    return lines
 
 
 def _read_docx_xml(
@@ -728,10 +809,19 @@ def _extract_docx(data: bytes) -> tuple[list[Block], list[str]]:
             budget = _DOCX_MAX_XML_BYTES
             root, budget = _read_docx_xml(archive, "word/document.xml", budget)
             extras: list[tuple[str, ElementTree.Element]] = []
-            for kind, name in _docx_extra_parts(archive.namelist()):
+            names = archive.namelist()
+            for kind, name in _docx_extra_parts(names):
                 part_root, budget = _read_docx_xml(archive, name, budget)
                 extras.append((kind, part_root))
-            unscanned = _docx_unscanned_parts(archive)
+            properties: list[tuple[str, ElementTree.Element]] = []
+            for name in (n for n in _DOCX_PROPERTY_PARTS if n in names):
+                part_root, budget = _read_docx_xml(archive, name, budget)
+                properties.append((name, part_root))
+            rels: list[tuple[str, ElementTree.Element]] = []
+            for name in sorted(n for n in names if n.endswith(".rels")):
+                part_root, budget = _read_docx_xml(archive, name, budget)
+                rels.append((name, part_root))
+            unscanned = _docx_unscanned_parts(names, rels)
     except zipfile.BadZipFile as exc:
         raise ExtractionError(f"failed to parse DOCX: {exc}") from exc
     except KeyError as exc:
@@ -754,6 +844,9 @@ def _extract_docx(data: bytes) -> tuple[list[Block], list[str]]:
     for part_root in (root, *(part for _, part in extras)):
         for text in _docx_deleted_texts(part_root):
             blocks.append(Block(len(blocks), "deletion", text))
+    for name, part_root in properties:
+        for line in _docx_property_lines(name, part_root):
+            blocks.append(Block(len(blocks), "metadata", line))
     warnings = [] if blocks else ["no text blocks extracted"]
     warnings.extend(f"{NOT_SCANNED}{what}" for what in unscanned)
     return blocks, warnings
