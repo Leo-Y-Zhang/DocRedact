@@ -598,16 +598,31 @@ def _docx_paragraph_text(paragraph: ElementTree.Element) -> str:
 
     Runs are joined with no separator (Word fragments sentences into many
     runs, sometimes mid-token); w:tab and w:br become whitespace so adjacent
-    tokens do not fuse.
+    tokens do not fuse. A paragraph nested inside this one - a text box's
+    content lives in a run of its host paragraph - is set off by line breaks
+    on both sides, or its first and last words would fuse with the host's.
+    The walk is iterative, so hostile nesting cannot exhaust the stack.
     """
     parts: list[str] = []
-    for node in paragraph.iter():
+    stack: list[tuple[Iterator[ElementTree.Element], bool]] = [(iter(paragraph), False)]
+    while stack:
+        children, nested = stack[-1]
+        node = next(children, None)
+        if node is None:
+            stack.pop()
+            if nested and parts and parts[-1] != "\n":
+                parts.append("\n")
+            continue
         if node.tag == f"{_W}t":
             parts.append(node.text or "")
         elif node.tag == f"{_W}tab":
             parts.append("\t")
         elif node.tag in (f"{_W}br", f"{_W}cr"):
             parts.append("\n")
+        is_paragraph = node.tag == f"{_W}p"
+        if is_paragraph and parts and parts[-1] != "\n":
+            parts.append("\n")
+        stack.append((iter(node), is_paragraph))
     return "".join(parts).strip()
 
 

@@ -23,6 +23,7 @@ from pypdf.generic import (
 
 from docredact import extractors
 from docredact.core import build_document
+from docredact.detectors import scan_text
 from docredact.extractors import (
     Block,
     ExtractionError,
@@ -762,3 +763,20 @@ def test_docx_normal_document_is_unaffected() -> None:
     blocks, warnings = _blocks("sample.docx")
     assert warnings == []
     assert len(blocks) > 0
+
+
+def test_docx_text_box_paragraphs_do_not_fuse_with_their_host() -> None:
+    # A text box's paragraphs nest inside the host paragraph's run. Joining
+    # every w:t with no separator fused them into one token -
+    # "KeyAKIAIOSFODNN7EXAMPLEjane.doe@example.comNext" - so the key was never
+    # detected as a key, only swallowed into one low-severity "email" value.
+    body = (
+        "<w:p><w:r><w:t>Key</w:t></w:r><w:r><w:pict><w:txbxContent>"
+        + _WP % "AKIAIOSFODNN7EXAMPLE"
+        + _WP % "jane.doe@example.com"
+        + "</w:txbxContent></w:pict></w:r><w:r><w:t>Next</w:t></w:r></w:p>"
+    )
+    blocks, _ = extract_blocks(_mini_docx({"word/document.xml": _mini_document(body)}), "docx")
+    assert [b.text for b in blocks] == ["Key\nAKIAIOSFODNN7EXAMPLE\njane.doe@example.com\nNext"]
+    found = {(e.type, e.value) for e in scan_text(blocks[0].text)}
+    assert found == {("api_key", "AKIAIOSFODNN7EXAMPLE"), ("email", "jane.doe@example.com")}
