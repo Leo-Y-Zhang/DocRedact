@@ -2,7 +2,10 @@
 
 Exit codes:
     0  success (scan: even when entities were found, unless --redact strict)
-    1  runtime error (missing file, unsupported/corrupt format, IO failure)
+    1  runtime error (missing file, unsupported/corrupt format, IO failure, an
+       output that would overwrite an input); under --redact strict also any
+       content reported "not scanned" - the gate fails closed on what it did
+       not read
     2  usage error (argparse default for bad arguments)
     3  --redact strict found at least one (new, if baselined) finding
        (extract and scan; scan parse errors outrank this and stay exit 1)
@@ -12,15 +15,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
 
 from . import __version__
-from .baseline import load_baseline, write_baseline
+from .baseline import BaselineError, load_baseline, write_baseline
 from .core import REDACT_MODES, build_document, build_sanitized
 from .detectors import Confidence
-from .extractors import FORMATS, DocRedactError
+from .extractors import FORMATS, DocRedactError, is_gap
 from .metadata import SEVERITY_ORDER
 from .policy import Policy, discover_policy, load_policy
 from .report import render_markdown, render_stats
@@ -47,6 +51,59 @@ def _resolve_policy(target: Path, rules: str | None) -> Policy | None:
 EXIT_OK = 0
 EXIT_ERROR = 1
 EXIT_STRICT = 3
+
+
+def _same_path(a: Path, b: Path) -> bool:
+    """True if ``a`` and ``b`` name the same file (through symlinks and hard links)."""
+    try:
+        if a.exists() and b.exists():
+            return os.path.samefile(a, b)
+        return os.path.normcase(a.resolve()) == os.path.normcase(b.resolve())
+    except (OSError, RuntimeError):  # RuntimeError: a symlink loop, before Python 3.13
+        return False
+
+
+def _check_outputs(
+    outputs: list[tuple[str, str | None]],
+    inputs: list[Path],
+    baseline: str | None,
+) -> None:
+    """Refuse, before anything is written, an output that would destroy an input.
+
+    ``outputs`` are (flag, path) pairs. No output may be one of ``inputs`` (the
+    document or documents being read, and the policy file) or the ``baseline``
+    being read, no two outputs may
+    share a path (the later write would replace the earlier one: --out after
+    --write-redacted put the raw-value JSON report into the "sanitized" file), and
+    --write-baseline may only replace a file that already is a baseline -
+    refreshing ``--baseline FILE --write-baseline FILE`` in place is the one
+    sanctioned overwrite of something that is read.
+    """
+    named = [(flag, Path(path)) for flag, path in outputs if path]
+    read = Path(baseline) if baseline else None
+    for i, (flag, path) in enumerate(named):
+        for source in [*inputs, *([read] if read else [])]:
+            if source is read and flag == "--write-baseline":
+                continue  # the documented in-place refresh
+            if _same_path(path, source):
+                raise DocRedactError(
+                    f"refusing to overwrite an input with {flag}: {path.name}"
+                )
+        for other_flag, other in named[:i]:
+            if _same_path(path, other):
+                raise DocRedactError(
+                    f"refusing to write {other_flag} and {flag} to the same file: {path.name}"
+                )
+        if flag == "--write-baseline" and path.is_file():
+            if read is not None and _same_path(path, read):
+                continue
+            try:
+                load_baseline(path)
+            except BaselineError:
+                raise DocRedactError(
+                    f"refusing to overwrite {path.name} with --write-baseline: "
+                    "it exists and is not a baseline file"
+                ) from None
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -79,7 +136,7 @@ def _build_parser() -> argparse.ArgumentParser:
         choices=REDACT_MODES,
         default="report",
         help="report: list findings; mask: replace them in text; "
-        "strict: exit 3 if any finding (default: report)",
+        "strict: exit 3 if any finding, 1 if any content was not scanned (default: report)",
     )
     extract.add_argument(
         "--min-confidence",
@@ -153,7 +210,8 @@ def _build_parser() -> argparse.ArgumentParser:
         choices=REDACT_MODES,
         default="report",
         help="report: include finding values in machine output; mask: null them; "
-        "strict: exit 3 if any (new, if baselined) finding (default: report)",
+        "strict: exit 3 if any (new, if baselined) finding, 1 if any content was not "
+        "scanned (default: report)",
     )
     scan.add_argument(
         "--baseline",
@@ -185,6 +243,16 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def _cmd_extract(args: argparse.Namespace) -> int:
     target = Path(args.file)
+    policy_path = discover_policy(target, Path(args.rules) if args.rules else None)
+    _check_outputs(
+        [
+            ("--write-redacted", args.write_redacted),
+            ("--write-baseline", args.write_baseline),
+            ("--out", args.out),
+        ],
+        [target] + ([policy_path] if policy_path else []),
+        args.baseline,
+    )
     policy = _resolve_policy(target, args.rules)
     min_confidence = Confidence(args.min_confidence)
     document = build_document(target, args.redact, args.timestamp, min_confidence, policy)
@@ -225,6 +293,15 @@ def _cmd_extract(args: argparse.Namespace) -> int:
         print(payload)
     if args.stats:
         print(render_stats(document), end="", file=sys.stderr)
+    warnings = document["warnings"]
+    assert isinstance(warnings, list)
+    gaps = [w for w in warnings if is_gap(w)]
+    if args.redact == "strict" and gaps:
+        # A gate that did not read part of the document did not check it: fail
+        # closed, like a parse error, outranking a finding and a fresh baseline.
+        for gap in gaps:
+            print(f"docredact: error: {gap}", file=sys.stderr)
+        return EXIT_ERROR
     if args.write_baseline:
         return EXIT_OK  # everything just recorded is accepted by definition
     redaction = document["redaction"]
@@ -256,6 +333,12 @@ def _cmd_scan(args: argparse.Namespace) -> int:
         ),
         key=lambda p: p.relative_to(root).as_posix(),
     )
+    policy_path = discover_policy(root, Path(args.rules) if args.rules else None)
+    _check_outputs(
+        [("--write-baseline", args.write_baseline), ("--out", args.out)],
+        paths + ([policy_path] if policy_path else []),
+        args.baseline,
+    )
     if not paths:
         # An empty tree has no findings; recording that is still meaningful.
         if args.write_baseline:
@@ -274,6 +357,7 @@ def _cmd_scan(args: argparse.Namespace) -> int:
     # (tree-relative posix path, document or None when the file failed to parse)
     entries: list[tuple[str, dict[str, Any] | None]] = []
     errors = 0
+    partial: list[str] = []  # files with content that was not scanned
     for path in paths:
         name = path.relative_to(root).as_posix()
         try:
@@ -283,6 +367,15 @@ def _cmd_scan(args: argparse.Namespace) -> int:
             entries.append((name, None))
             errors += 1
             continue
+        # The same warnings extract puts in its JSON (undecodable bytes, a
+        # skipped attachment, an image-only page): text the gate did not read.
+        # None of the scan formats has room for them, so they go to stderr.
+        warnings = document["warnings"]
+        assert isinstance(warnings, list)
+        for warning in warnings:
+            print(f"warning: {name}: {warning}", file=sys.stderr)
+        if any(is_gap(w) for w in warnings):
+            partial.append(name)
         entries.append((name, document))
 
     # One flat findings list for the whole tree: each finding is the entity dict
@@ -316,7 +409,16 @@ def _cmd_scan(args: argparse.Namespace) -> int:
         payload = _render_scan_table(entries, findings)
     _write_output(args.out, payload)
 
-    if errors:
+    if args.redact == "strict":
+        # Content the gate could not read is a read failure too: strict mode fails
+        # closed on it exactly as it does on a file that failed to parse.
+        for name in partial:
+            print(
+                f"docredact: error: {name}: not fully scanned (see the 'not scanned' "
+                "warnings above)",
+                file=sys.stderr,
+            )
+    if errors or (args.redact == "strict" and partial):
         # A file the gate could not read outranks everything else: neither a freshly
         # recorded baseline nor a quiet strict pass covers the whole tree then.
         return EXIT_ERROR

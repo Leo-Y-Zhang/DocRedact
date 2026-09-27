@@ -22,6 +22,19 @@ from .detectors import Entity
 from .extractors import Block
 from .redact import select_replacements
 
+# Block kinds that are scanned and reported but never rendered into the artifact.
+# They hold text a reader of the document does not see as its content - what the
+# author deleted with Track Changes, review comments and notes - and the artifact is
+# the copy that gets shared. Rendering them would hand the recipient exactly what
+# the detectors cannot recognise (names, salaries, free text) from the part of the
+# file the author meant to remove.
+HIDDEN_KINDS = frozenset({"deletion", "comment", "annotation", "metadata", "link", "alt_text", "revision"})
+
+
+def rendered_blocks(blocks: list[Block]) -> list[Block]:
+    """The blocks the artifact is built from: every block except the hidden kinds."""
+    return [b for b in blocks if b.kind not in HIDDEN_KINDS]
+
 
 def _token_prefix(type_: str) -> str:
     return type_.upper()

@@ -49,7 +49,7 @@ names it explicitly every time.
    `--baseline FILE --write-baseline FILE`, which refreshes the file and drops
    fixed findings out of it.
 
-## The nine states
+## The twelve states
 
 This is the analogue of "every state of every screen". Every row was produced
 by running the command.
@@ -60,6 +60,9 @@ by running the command.
 | **Empty tree** (`--format table`) | `no matching files` | - | 0 |
 | **Empty tree** (`--format sarif`) | A complete, valid, empty SARIF run - `"results": []` | `no matching files` moves here, so the machine output stays parseable | 0 |
 | **Policy applied** | unchanged | `policy: applying <path>` on every run, plus one `warning:` line per malformed element - `warning: policy has unknown key 'bogus'` | unchanged |
+| **Extraction warnings** (an empty document; or content present but not read - undecodable bytes, an attachment, an embedded file, an image-only PDF page - which start `not scanned:`) | unchanged | one `warning: <path>: <message>` line per warning | unchanged, except strict mode below |
+| **Strict, content not fully scanned** | the report | the `warning:` lines, then `docredact: error: scan.pdf: not fully scanned (see the 'not scanned' warnings above)` | **1** (outranks 3 and a fresh baseline) |
+| **Error - an output would overwrite an input** | - | `docredact: error: refusing to overwrite an input with --write-redacted: report.txt` | 1, nothing written |
 | **Baseline suppressing** | only the new findings | `baseline: 6 finding(s) suppressed, 1 new` | 0 or 3 |
 | **Strict, findings present** | the report | - | **3** |
 | **Error - target is not a directory** | - | `docredact: error: not a directory: fixtures/sample.txt` | 1 |
@@ -83,7 +86,9 @@ dropping out of the list.
 
 *Nothing is suppressed silently.* Suppression by baseline, an applied policy, a
 malformed policy line, a disabled detector, a skipped EML attachment and an
-image-only PDF page each produce a line the user can see. The suppression count
+image-only PDF page each produce a line the user can see - and in strict mode
+the last two fail the gate, because content it did not read is content it did
+not check. The suppression count
 is printed even when it is zero.
 
 ## Transitions

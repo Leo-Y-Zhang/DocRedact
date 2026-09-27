@@ -110,7 +110,10 @@ Every extractor treats its input as attacker-controlled:
   bypass the guard; XML containing `<!DOCTYPE`/`<!ENTITY` is refused (XXE).
 - JSON: own 200-level nesting cap plus a RecursionError backstop.
 - EML: stdlib parsing, expansion proportional to input; attachments are
-  skipped with a visible warning, never silently.
+  skipped with a visible `not scanned:` warning, never silently.
+- Content that is present but not read (attachments, embedded files and
+  objects, image-only pages, undecodable text) is always a `not scanned:`
+  warning, and `--redact strict` fails closed on it (exit 1).
 - Detector regexes are linear-time (RFC-bounded email segments); the
   high-entropy overlap filter is a merged-interval binary search, not a
   nested scan.
