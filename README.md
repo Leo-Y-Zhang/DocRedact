@@ -494,7 +494,7 @@ Hypothesis property layer. Still on the list:
 
 ## License
 
-Proprietary - All Rights Reserved - portfolio viewing only. Read it, run it,
-check it; no reuse rights are granted. [`LICENSE`](LICENSE) carries the
+Proprietary, source-available. Copyright (c) 2026 Leo Y. Zhang. Read it, run
+it, check it; no reuse rights are granted. [`LICENSE`](LICENSE) carries the
 copyright notice and the complete terms, and by its section 10.4 it supersedes
 any other statement of terms - including this summary.
